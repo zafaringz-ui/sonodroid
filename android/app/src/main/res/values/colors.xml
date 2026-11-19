@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches design-system SonoraBackground so the window never flashes white. -->
+    <color name="sonora_background">#0B0F14</color>
+</resources>
