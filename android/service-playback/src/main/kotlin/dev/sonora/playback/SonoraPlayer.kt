@@ -86,7 +86,8 @@ class SonoraPlayer(
             .setShuffleModeEnabled(playback.shuffle)
 
         if (playback.track != null) {
-            builder.setPosition(playback.positionMs * 1_000L, playback.bufferedMs * 1_000L)
+            builder.setContentPositionMs(playback.positionMs)
+            builder.setContentBufferedPositionMs(PositionSupplier.getConstant(playback.bufferedMs))
         }
         return builder.build()
     }

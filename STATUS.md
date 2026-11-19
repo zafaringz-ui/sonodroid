@@ -7,6 +7,14 @@ implementation. A structural check is not a build or a test.
 
 ## Phase A
 
+This sandbox has no Java, Android SDK, Rust or emulator. CI is the only available
+remote build verification here; emulator and native ABI verification still require
+appropriate tooling. GitHub Actions run 44599179100 failed Android assembly at
+`SonoraPlayer.kt` (`setPosition`) and `Artwork.kt` (`matchParentSize` import),
+according to the user-provided log. The same run's Rust formatting step failed;
+its detailed log has not been supplied. The targeted Kotlin changes and CI logging
+changes are **implemented but untested**. No new CI result is claimed yet.
+
 - **Verified — upstream pin:** `git -C vendor/sonora describe --tags --exact-match`
   printed `v0.50.2`; `git submodule status` printed commit
   `c0b501cf4c138e55670a390240fadb7577c3913a` at `vendor/sonora`. Upstream declares
