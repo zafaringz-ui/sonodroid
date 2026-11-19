@@ -2,6 +2,7 @@ package dev.sonora.playback
 
 import android.os.Looper
 import androidx.annotation.OptIn
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -73,7 +74,7 @@ class SonoraPlayer(
             .setAvailableCommands(Player.Commands.Builder().addAllCommands().build())
             .setPlaylist(items)
             .setCurrentMediaItemIndex(
-                playback.queueIndex.coerceIn(0, (items.lastIndex).coerceAtLeast(0)),
+                if (items.isEmpty()) C.INDEX_UNSET else playback.queueIndex.coerceIn(0, items.lastIndex),
             )
             .setPlayWhenReady(
                 playback.isPlaying,
