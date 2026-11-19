@@ -34,7 +34,7 @@ object DeepLinks {
     fun fromIntent(intent: Intent?): DeepLink? {
         if (intent == null) return null
         return when (intent.action) {
-            Intent.ACTION_VIEW -> intent.data?.let(::parse)
+            Intent.ACTION_VIEW -> intent.data?.let { parse(it.toString()) }
             Intent.ACTION_SEND -> {
                 val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return null
                 parse(text.trim())

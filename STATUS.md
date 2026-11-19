@@ -7,6 +7,13 @@ implementation. A structural check is not a build or a test.
 
 ## Phase A
 
+- **Implemented but untested — reported errors from CI commit `a7b3f32`:** the
+  ACTION_VIEW caller now converts its `Uri` to a string, and the `with_foreign`
+  UniFFI traits now use `Arc<dyn Trait>` arguments as in the upstream UniFFI 0.28.3
+  async trait fixture. No compiler has verified these fixes. CI now preserves its
+  generated `Cargo.lock` as an artifact; the lockfile is not yet committed because
+  this environment cannot run Cargo or fetch Actions artifacts.
+
 - **Verified — CI formatting check on commit `779c568`:**
   `gh run view 44602340109 --json jobs --jq '.jobs[] | {name,steps: [.steps[] | {name,conclusion}]}'`
   reported Rust core `Formatting` as `success`. Rust unit tests and Android assembly
