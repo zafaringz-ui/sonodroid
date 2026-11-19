@@ -66,10 +66,7 @@ impl Inner {
     }
 
     fn preference(&self, provider: Provider) -> QualityPreference {
-        self.preferences
-            .get(&provider)
-            .copied()
-            .unwrap_or_default()
+        self.preferences.get(&provider).copied().unwrap_or_default()
     }
 
     fn plan(&self, provider: Provider) -> PlanTier {
@@ -97,11 +94,7 @@ impl Inner {
     /// changed. `autoplay` is false for edits that must not restart audio.
     fn sync_player(&mut self, autoplay: bool) {
         let current = self.queue.current().cloned();
-        let playing_id = self
-            .player
-            .state()
-            .track
-            .map(|track| track.id);
+        let playing_id = self.player.state().track.map(|track| track.id);
         let current_id = current.as_ref().map(|track| track.id.clone());
 
         if current_id != playing_id {

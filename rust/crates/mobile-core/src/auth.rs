@@ -179,7 +179,11 @@ mod tests {
         let store = AuthStore::new();
         let snapshot = store.snapshot();
         assert_eq!(snapshot.len(), 2);
-        assert!(snapshot.iter().all(|e| e.status == AccountStatus::SignedOut));
+        assert!(
+            snapshot
+                .iter()
+                .all(|e| e.status == AccountStatus::SignedOut)
+        );
     }
 
     #[test]
@@ -216,7 +220,9 @@ mod tests {
                 is_lossless_capable: false,
             },
         );
-        let updated = store.set_plan(Provider::YouTubeMusic, PlanTier::Premium).unwrap();
+        let updated = store
+            .set_plan(Provider::YouTubeMusic, PlanTier::Premium)
+            .unwrap();
         assert!(updated.account.unwrap().is_lossless_capable);
     }
 

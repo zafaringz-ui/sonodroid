@@ -48,8 +48,20 @@ fn youtube_track(id: &str, title: &str, artist: &str, duration_ms: i64) -> Track
 pub fn tracks(provider: Provider) -> Vec<Track> {
     match provider {
         Provider::Deezer => vec![
-            deezer_track("dz-1", "Night Ferry", "Astrid Lind", "Harbour Lights", 214_000),
-            deezer_track("dz-2", "Paper Lantern", "Astrid Lind", "Harbour Lights", 187_000),
+            deezer_track(
+                "dz-1",
+                "Night Ferry",
+                "Astrid Lind",
+                "Harbour Lights",
+                214_000,
+            ),
+            deezer_track(
+                "dz-2",
+                "Paper Lantern",
+                "Astrid Lind",
+                "Harbour Lights",
+                187_000,
+            ),
             deezer_track("dz-3", "Slow Tide", "Kaito Mori", "Coastline", 243_000),
             deezer_track("dz-4", "Copper Sky", "Kaito Mori", "Coastline", 198_000),
             deezer_track("dz-5", "Rain on Glass", "Mireille", "Interiors", 226_000),
@@ -83,7 +95,13 @@ fn release(provider: Provider, id: &str, title: &str, artist: &str, year: i32) -
 pub fn albums(provider: Provider) -> Vec<Album> {
     match provider {
         Provider::Deezer => vec![
-            release(provider, "al-harbour", "Harbour Lights", "Astrid Lind", 2024),
+            release(
+                provider,
+                "al-harbour",
+                "Harbour Lights",
+                "Astrid Lind",
+                2024,
+            ),
             release(provider, "al-coastline", "Coastline", "Kaito Mori", 2023),
             release(provider, "al-interiors", "Interiors", "Mireille", 2025),
         ],
@@ -157,12 +175,13 @@ pub fn playlists(provider: Provider) -> Vec<Playlist> {
 #[must_use]
 pub fn home(provider: Provider) -> HomeFeed {
     let all = tracks(provider);
-    let section = |id: &str, title: &str, subtitle: Option<&str>, items: Vec<HomeItem>| HomeSection {
-        id: id.into(),
-        title: title.into(),
-        subtitle: subtitle.map(Into::into),
-        items,
-    };
+    let section =
+        |id: &str, title: &str, subtitle: Option<&str>, items: Vec<HomeItem>| HomeSection {
+            id: id.into(),
+            title: title.into(),
+            subtitle: subtitle.map(Into::into),
+            items,
+        };
 
     let quick_picks = all
         .iter()
@@ -188,7 +207,12 @@ pub fn home(provider: Provider) -> HomeFeed {
             Provider::YouTubeMusic => "Good evening".into(),
         },
         sections: vec![
-            section("flow", "Flow", Some("Built from your listening"), quick_picks),
+            section(
+                "flow",
+                "Flow",
+                Some("Built from your listening"),
+                quick_picks,
+            ),
             section("new", "New releases", None, new_releases),
             section("mixes", "Made for you", None, mixes),
         ],
@@ -211,9 +235,8 @@ pub fn library(provider: Provider) -> LibrarySnapshot {
 pub fn search(provider: Provider, query: &str, filter: SearchFilter) -> SearchResults {
     let needle = query.trim().to_lowercase();
     let matches = |haystack: &str| needle.is_empty() || haystack.to_lowercase().contains(&needle);
-    let wants = |candidate: SearchFilter| {
-        matches!(filter, SearchFilter::All) || filter == candidate
-    };
+    let wants =
+        |candidate: SearchFilter| matches!(filter, SearchFilter::All) || filter == candidate;
 
     let tracks = if wants(SearchFilter::Tracks) || wants(SearchFilter::Videos) {
         tracks(provider)

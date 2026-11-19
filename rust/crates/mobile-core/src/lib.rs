@@ -22,7 +22,7 @@ mod quality;
 mod queue;
 
 pub use api::{CoreConfig, SonoraCore};
-pub use auth::{AccountSummary, AccountStatus, ProviderAuth};
+pub use auth::{AccountStatus, AccountSummary, ProviderAuth};
 pub use error::CoreError;
 pub use events::{CoreEvent, CoreListener, TokenMinter};
 pub use models::{
@@ -30,10 +30,10 @@ pub use models::{
     LyricLine, Lyrics, Playlist, PlaylistDetail, Provider, SearchFilter, SearchResults, Track,
 };
 pub use playback::PlaybackState;
-pub use queue::{QueueSnapshot, RepeatMode};
 pub use quality::{
     NetworkKind, PlanTier, QualityPreference, QualityTier, StreamPurpose, StreamQuality,
 };
+pub use queue::{QueueSnapshot, RepeatMode};
 
 // Generates the scaffolding the Kotlin bindings are built against.
 uniffi::setup_scaffolding!();
