@@ -28,8 +28,10 @@ YouTube downloads or Deezer offline implementation is provided.
 
 ## Getting started (requires verification)
 
-Install JDK 17, Android SDK 35 and Gradle 8.10.2. No Gradle wrapper is included.
-From `android/`, try `gradle :app:assembleDebug` and fix compile errors before use.
+Install JDK 17 and Android SDK 35. Initialize the pinned upstream source with
+`git submodule update --init --recursive`. From `android/`, try
+`./gradlew :app:assembleDebug` and fix compile errors before use. The Gradle 8.10.2
+wrapper has been added but cannot be verified without a JDK and network access.
 Rust development additionally needs Rust 1.85, Android NDK r27c and cargo-ndk;
 `scripts/build-rust.sh` and `scripts/gen-bindings.sh` are untested starting points.
 Do not rely on the experimental `-Psonora.rust=true` path until the adapter and
@@ -41,5 +43,5 @@ it is not a compiler or a functional test.
 ## License
 
 GPL-3.0-or-later; see [LICENSE](LICENSE). The plan identifies upstream Sonora as
-GPL-3.0; upstream source has not yet been imported or audited. Provider terms and
+GPL-3.0; upstream source is pinned as a submodule; its dependencies have not yet been integrated or fully audited. Provider terms and
 licensing need review before distribution.
