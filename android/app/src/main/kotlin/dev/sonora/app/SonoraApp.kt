@@ -9,6 +9,7 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
@@ -62,6 +63,7 @@ import kotlinx.coroutines.launch
  * App shell (plan §7): bottom bar, mini player and the swipe-up Now Playing sheet,
  * with a type-safe NavHost in between.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SonoraApp(graph: AppGraph) {
     val core = graph.core

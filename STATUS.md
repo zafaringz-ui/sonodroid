@@ -7,6 +7,16 @@ implementation. A structural check is not a build or a test.
 
 ## Phase A
 
+- **Verified — CI formatting check on commit `779c568`:**
+  `gh run view 44602340109 --json jobs --jq '.jobs[] | {name,steps: [.steps[] | {name,conclusion}]}'`
+  reported Rust core `Formatting` as `success`. Rust unit tests and Android assembly
+  failed in that run; no details are available in this sandbox.
+- **Implemented but untested — Media3/Compose follow-up:** compared player builder
+  and handler signatures against AndroidX Media3 1.5.0 source and scanned scope
+  modifier imports and usages. Empty Media3 playlists now use `C.INDEX_UNSET`;
+  Material 3 experimental sheet and tab calls opt in. Full Compose API compatibility
+  and runtime behavior have not been verified.
+
 This sandbox has no Java, Android SDK, Rust or emulator. CI is the only available
 remote build verification here; emulator and native ABI verification still require
 appropriate tooling. GitHub Actions run 44599179100 failed Android assembly at
