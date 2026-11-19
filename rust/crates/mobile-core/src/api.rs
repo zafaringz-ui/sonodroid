@@ -149,13 +149,13 @@ impl SonoraCore {
     }
 
     /// Kotlin registers its event bridge once, at process start.
-    pub fn set_listener(&self, listener: Box<dyn CoreListener>) {
-        self.inner.lock().listener = Some(Arc::from(listener));
+    pub fn set_listener(&self, listener: Arc<dyn CoreListener>) {
+        self.inner.lock().listener = Some(listener);
     }
 
     /// The WebView-backed Proof-of-Origin minter (Phase 4).
-    pub fn set_token_minter(&self, minter: Box<dyn TokenMinter>) {
-        self.inner.lock().token_minter = Some(Arc::from(minter));
+    pub fn set_token_minter(&self, minter: Arc<dyn TokenMinter>) {
+        self.inner.lock().token_minter = Some(minter);
     }
 
     #[must_use]
