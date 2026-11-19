@@ -2,7 +2,7 @@ name: build
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'arena/aa8dcbab-sonodroid']
   pull_request:
 
 concurrency:
@@ -21,23 +21,70 @@ jobs:
         working-directory: rust
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
 
       - name: Formatting
-        run: cargo fmt --all -- --check
+        shell: bash
+        run: |
+          mkdir -p ../ci-logs
+          set -o pipefail
+          cargo fmt --all -- --check 2>&1 | tee ../ci-logs/cargo-fmt.log || {
+            status=${PIPESTATUS[0]}
+            if [ "$status" -eq 0 ]; then status=1; fi
+            echo 'Last 100 lines of formatting output:'
+            tail -n 100 ../ci-logs/cargo-fmt.log
+            exit "$status"
+          }
+
+      # Generate a reviewable patch without making a failing check pass or committing it.
+      - name: Generate formatting patch
+        if: failure()
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo fmt --all 2>&1 | tee ../ci-logs/cargo-fmt-apply.log
+          git diff --binary -- . > ../ci-logs/rustfmt.patch
 
       - name: Unit tests
-        run: cargo test --workspace --all-targets
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          mkdir -p ../ci-logs
+          set -o pipefail
+          cargo test --workspace --all-targets 2>&1 | tee ../ci-logs/cargo-test.log || {
+            status=${PIPESTATUS[0]}
+            if [ "$status" -eq 0 ]; then status=1; fi
+            echo 'Last 100 lines of cargo test output:'
+            tail -n 100 ../ci-logs/cargo-test.log
+            exit "$status"
+          }
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D clippy::all
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          mkdir -p ../ci-logs
+          set -o pipefail
+          cargo clippy --workspace --all-targets -- -D clippy::all 2>&1 | tee ../ci-logs/cargo-clippy.log || {
+            status=${PIPESTATUS[0]}
+            if [ "$status" -eq 0 ]; then status=1; fi
+            echo 'Last 100 lines of clippy output:'
+            tail -n 100 ../ci-logs/cargo-clippy.log
+            exit "$status"
+          }
+
+      - name: Upload Rust logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-logs
+          path: ci-logs/
+          if-no-files-found: warn
 
   android:
     name: Android
@@ -47,28 +94,53 @@ jobs:
         working-directory: android
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-
-      # No wrapper is committed yet (the project was scaffolded without a JVM);
-      # the action supplies Gradle 8.10.2 and the dependency cache.
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.10.2"
 
       - name: Assemble debug
-        run: gradle :app:assembleDebug --stacktrace
+        shell: bash
+        run: |
+          mkdir -p ../ci-logs
+          set -o pipefail
+          gradle :app:assembleDebug --stacktrace 2>&1 | tee ../ci-logs/gradle-assemble.log || {
+            status=${PIPESTATUS[0]}
+            if [ "$status" -eq 0 ]; then status=1; fi
+            echo 'Last 100 lines of Gradle assemble output:'
+            tail -n 100 ../ci-logs/gradle-assemble.log
+            exit "$status"
+          }
 
       - name: Unit tests
-        run: gradle :core-bridge:testDebugUnitTest --stacktrace
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          mkdir -p ../ci-logs
+          set -o pipefail
+          gradle testDebugUnitTest --stacktrace 2>&1 | tee ../ci-logs/gradle-test.log || {
+            status=${PIPESTATUS[0]}
+            if [ "$status" -eq 0 ]; then status=1; fi
+            echo 'Last 100 lines of Gradle test output:'
+            tail -n 100 ../ci-logs/gradle-test.log
+            exit "$status"
+          }
+
+      - name: Upload Gradle logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-logs
+          path: ci-logs/
+          if-no-files-found: warn
 
       - name: Upload APK
-        if: github.event_name == 'pull_request'
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: sonora-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
