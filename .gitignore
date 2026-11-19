@@ -1,0 +1,31 @@
+# Gradle / Android
+.gradle/
+**/build/
+!**/src/**/build/
+local.properties
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+*.hprof
+profiling/
+
+# Rust
+rust/target/
+**/*.rs.bk
+
+# Signing material (never commit)
+*.jks
+*.keystore
+keystore.properties
+secrets.properties
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+*.swp
+
+# Generated UniFFI bindings are re-created by scripts/gen-bindings.sh
+android/core-bridge/src/generated/
