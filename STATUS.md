@@ -12,8 +12,11 @@ remote build verification here; emulator and native ABI verification still requi
 appropriate tooling. GitHub Actions run 44599179100 failed Android assembly at
 `SonoraPlayer.kt` (`setPosition`) and `Artwork.kt` (`matchParentSize` import),
 according to the user-provided log. The same run's Rust formatting step failed;
-its detailed log has not been supplied. The targeted Kotlin changes and CI logging
-changes are **implemented but untested**. No new CI result is claimed yet.
+the user supplied its rustfmt diff from that earlier run. The shown formatting edits
+have been applied manually; `cargo fmt` and the formatting check were not run locally.
+The targeted Kotlin changes and CI logging changes are **implemented but untested**.
+The later CI run 44601275727 reported failures in Android assembly/tests and Rust
+formatting/tests/Clippy; its detailed error logs have not been supplied.
 
 - **Verified — upstream pin:** `git -C vendor/sonora describe --tags --exact-match`
   printed `v0.50.2`; `git submodule status` printed commit

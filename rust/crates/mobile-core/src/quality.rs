@@ -166,16 +166,17 @@ pub fn describe(provider: Provider, tier: QualityTier) -> StreamQuality {
             bit_depth: 0,
             label: "MP3 128 kbps".into(),
         },
-        (Provider::YouTubeMusic, QualityTier::HiRes | QualityTier::Lossless | QualityTier::High) => {
-            StreamQuality {
-                tier: QualityTier::High,
-                codec: "aac".into(),
-                bitrate_kbps: 256,
-                sample_rate_hz: 44_100,
-                bit_depth: 0,
-                label: "AAC 256 kbps".into(),
-            }
-        }
+        (
+            Provider::YouTubeMusic,
+            QualityTier::HiRes | QualityTier::Lossless | QualityTier::High,
+        ) => StreamQuality {
+            tier: QualityTier::High,
+            codec: "aac".into(),
+            bitrate_kbps: 256,
+            sample_rate_hz: 44_100,
+            bit_depth: 0,
+            label: "AAC 256 kbps".into(),
+        },
         (Provider::YouTubeMusic, QualityTier::Normal) => StreamQuality {
             tier,
             codec: "aac".into(),
@@ -306,13 +307,15 @@ mod tests {
             ),
             Err(CoreError::Offline)
         ));
-        assert!(resolve(
-            Provider::Deezer,
-            PlanTier::Free,
-            NetworkKind::Offline,
-            QualityPreference::Auto,
-            StreamPurpose::Download
-        )
-        .is_ok());
+        assert!(
+            resolve(
+                Provider::Deezer,
+                PlanTier::Free,
+                NetworkKind::Offline,
+                QualityPreference::Auto,
+                StreamPurpose::Download
+            )
+            .is_ok()
+        );
     }
 }
