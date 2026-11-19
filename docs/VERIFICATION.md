@@ -4,7 +4,7 @@ This is scaffolding, not a completed implementation. No Gradle sync, Android or 
 compilation, unit tests, instrumentation tests, device tests or benchmarks have been
 run in the authoring environment. XML and TOML parsing and a delimiter-balance check
 were run; they do not establish correctness. The CI workflow and native build scripts
-are untested. No Gradle wrapper binary is present.
+are untested. A Gradle wrapper has been added, but it has not been run successfully.
 
 ## Required next work
 
