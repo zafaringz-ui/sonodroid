@@ -188,7 +188,9 @@ jobs:
       # NDK r27c, pinned by exact revision and by archive URL.
       NDK_REVISION: "27.2.12479018"
       NDK_URL: "https://dl.google.com/android/repository/android-ndk-r27c-linux.zip"
-      CARGO_NDK_VERSION: "3.5.7"
+      # 3.5.5-3.5.7 are yanked on crates.io and `cargo install` refuses yanked
+      # versions, so 3.5.4 is the newest installable 3.x release.
+      CARGO_NDK_VERSION: "3.5.4"
     steps:
       - uses: actions/checkout@v4
 
