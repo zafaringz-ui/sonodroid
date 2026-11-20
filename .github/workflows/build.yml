@@ -348,16 +348,37 @@ jobs:
           echo "Generated files:"
           find "$out" -name '*.kt' -exec wc -l {} \;
 
-      - name: Verify the adapter's expected class is present in the bindings
+      # uniffi names the file "<namespace>.kt" under the configured package path.
+      # This asserts the three declarations the adapter in
+      # android/core-bridge/src/rust/... depends on actually exist.
+      - name: Verify the adapter's expected declarations are present
         run: |
           set -euo pipefail
-          f=android/core-bridge/src/generated/dev/sonora/core/ffi/sonora_core.kt
-          if [ ! -f "$f" ]; then
-            echo "::error::Expected generated bindings at $f"
-            find android/core-bridge/src/generated -name '*.kt'
+          root=android/core-bridge/src/generated
+          echo "Generated tree:"
+          find "$root" -name '*.kt' -exec wc -l {} +
+          f=$(find "$root" -name '*.kt' -path '*dev/sonora/core/ffi/*' -print -quit)
+          if [ -z "$f" ]; then
+            echo "::error::No Kotlin bindings under $root/dev/sonora/core/ffi"
+            find "$root" -type f | head -n 40
             exit 1
           fi
-          grep -n "public object SonoraCore\|public interface CoreListener\|public interface TokenMinter" "$f"
+          echo "Bindings file: $f"
+          echo "package line:  $(grep -m1 '^package ' "$f")"
+          rc=0
+          for decl in \
+            "open class SonoraCore" \
+            "interface CoreListener" \
+            "interface TokenMinter" \
+            "sealed class CoreError"; do
+            if grep -q "$decl" "$f"; then
+              echo "OK   $decl"
+            else
+              echo "::error::Missing declaration: $decl"
+              rc=1
+            fi
+          done
+          exit "$rc"
 
       - name: Build the Rust-backed debug APK
         working-directory: android
