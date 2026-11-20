@@ -69,7 +69,10 @@ import kotlinx.coroutines.launch
  *  * a `with_foreign` trait generates a plain `interface`, so `object : CoreListener`
  *    is a legal implementation;
  *  * records are `data class` with `var` fields by default;
- *  * flat enums are Kotlin `enum class` with SHOUTY_SNAKE variants;
+ *  * flat enums are Kotlin `enum class` with SHOUTY_SNAKE variants, derived from
+ *    the Rust variant name by splitting on word boundaries, so `YouTubeMusic`
+ *    becomes `YOU_TUBE_MUSIC`, `HiFi` becomes `HI_FI` and `HiRes` becomes
+ *    `HI_RES` — not what the app-level model enums use;
  *  * `#[uniffi(flat_error)]` on `CoreError` generates `sealed class CoreException`
  *    with `CoreException.NotImplemented(message)`-style subclasses: the Kotlin
  *    backend renames any type used as an error by replacing a trailing `Error`
@@ -297,12 +300,12 @@ class UniffiCoreClient(
 
 private fun Provider.toFfi(): dev.sonora.core.ffi.Provider = when (this) {
     Provider.DEEZER -> dev.sonora.core.ffi.Provider.DEEZER
-    Provider.YOUTUBE_MUSIC -> dev.sonora.core.ffi.Provider.YOUTUBE_MUSIC
+    Provider.YOUTUBE_MUSIC -> dev.sonora.core.ffi.Provider.YOU_TUBE_MUSIC
 }
 
 private fun dev.sonora.core.ffi.Provider.toModel(): Provider = when (this) {
     dev.sonora.core.ffi.Provider.DEEZER -> Provider.DEEZER
-    dev.sonora.core.ffi.Provider.YOUTUBE_MUSIC -> Provider.YOUTUBE_MUSIC
+    dev.sonora.core.ffi.Provider.YOU_TUBE_MUSIC -> Provider.YOUTUBE_MUSIC
 }
 
 private fun Track.toModel(): TrackModel = TrackModel(
@@ -459,7 +462,7 @@ private fun StreamQuality.toModel(): QualityModel = QualityModel(
         dev.sonora.core.ffi.QualityTier.NORMAL -> QualityTier.NORMAL
         dev.sonora.core.ffi.QualityTier.HIGH -> QualityTier.HIGH
         dev.sonora.core.ffi.QualityTier.LOSSLESS -> QualityTier.LOSSLESS
-        dev.sonora.core.ffi.QualityTier.HIRES -> QualityTier.HIRES
+        dev.sonora.core.ffi.QualityTier.HI_RES -> QualityTier.HIRES
     },
     codec = codec,
     bitrateKbps = bitrateKbps,
@@ -472,14 +475,14 @@ private fun PlanTier.toFfi(): dev.sonora.core.ffi.PlanTier = when (this) {
     PlanTier.FREE -> dev.sonora.core.ffi.PlanTier.FREE
     PlanTier.STANDARD -> dev.sonora.core.ffi.PlanTier.STANDARD
     PlanTier.PREMIUM -> dev.sonora.core.ffi.PlanTier.PREMIUM
-    PlanTier.HIFI -> dev.sonora.core.ffi.PlanTier.HIFI
+    PlanTier.HIFI -> dev.sonora.core.ffi.PlanTier.HI_FI
 }
 
 private fun dev.sonora.core.ffi.PlanTier.toModel(): PlanTier = when (this) {
     dev.sonora.core.ffi.PlanTier.FREE -> PlanTier.FREE
     dev.sonora.core.ffi.PlanTier.STANDARD -> PlanTier.STANDARD
     dev.sonora.core.ffi.PlanTier.PREMIUM -> PlanTier.PREMIUM
-    dev.sonora.core.ffi.PlanTier.HIFI -> PlanTier.HIFI
+    dev.sonora.core.ffi.PlanTier.HI_FI -> PlanTier.HIFI
 }
 
 private fun NetworkKind.toFfi(): dev.sonora.core.ffi.NetworkKind = when (this) {
