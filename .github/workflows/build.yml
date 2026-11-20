@@ -311,7 +311,10 @@ jobs:
           readelf -sW "$so" | grep 'uniffi_sonora_core_checksum' | head -n 5 || echo "(none)"
           if ! readelf -sW "$so" | grep -q 'uniffi_sonora_core_checksum_function_'; then
             echo "::error::No uniffi_* metadata symbols in the static symbol table; bindgen library mode cannot work"
-            readelf -SW "$so" | grep -E 'symtab|dynsym' || true
+            echo "::error::sections: $(readelf -SW "$so" | grep -E 'symtab|dynsym' | tr -s ' ' | tr '\n' ';')"
+            echo "::error::symbol count: $(readelf -sW "$so" | wc -l)"
+            echo "::error::file size: $(stat -c%s "$so") bytes"
+            echo "::error::nearest names: $(readelf -sW "$so" | awk '{print $8}' | grep -i 'sonora\|uniffi' | head -n 5 | tr '\n' ' ')"
             exit 1
           fi
 
