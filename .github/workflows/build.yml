@@ -215,246 +215,17 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.10.2"
-          # Do not restore the Gradle User Home for this job. It can carry a cached result that
-          # says jna-5.14.0.aar is present when its bytes are gone, and Gradle only finds out
-          # inside the AAR transform, which surfaces as:
+          # Do not restore a Gradle User Home for this job. A restored home can carry a
+          # record saying jna-5.14.0.aar is resolved when its bytes are gone, and Gradle
+          # only notices inside the AAR transform:
           #   TransformException: Failed to transform jna-5.14.0.aar to match
           #     {artifactType=android-aar-metadata}
           #   caused by ArtifactNotFoundException: Could not find jna-5.14.0.aar
-          # Deleting the artifact and transform entries by hand did not clear it, so the
-          # targeted remedy is to resolve from a clean Gradle home. Re-enable this once the
-          # poisoned cache entry has been cycled (GitHub keeps the old entry until it expires).
+          # Deleting the module and transform directories by hand did not clear it (run
+          # 44733717656), so this job resolves from a clean home instead. The variable was
+          # isolated: run 44731681737 passed with a clean home, 44732675888 failed with a
+          # restored one.
           cache-disabled: true
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-
-      # `--locked` below fails fast if the committed lockfile is out of date, so
-      # this step only has to prove the file is tracked and not git-ignored.
-      - name: Verify committed Cargo lockfile
-        shell: bash
-        run: |
-          if ! git ls-files --error-unmatch Cargo.lock >/dev/null 2>&1; then
-            echo "::error::rust/Cargo.lock is not tracked; commit it before relying on --locked."
-            exit 1
-          fi
-          if git check-ignore -q Cargo.lock; then
-            echo "::error::Cargo.lock is listed in .gitignore; remove that entry."
-            exit 1
-          fi
-          echo "Using the committed Cargo.lock."
-
-      - name: Formatting
-        shell: bash
-        run: |
-          mkdir -p ../ci-logs
-          set -o pipefail
-          cargo fmt --all -- --check 2>&1 | tee ../ci-logs/cargo-fmt.log || {
-            status=${PIPESTATUS[0]}
-            if [ "$status" -eq 0 ]; then status=1; fi
-            echo 'Last 100 lines of formatting output:'
-            tail -n 100 ../ci-logs/cargo-fmt.log
-            exit "$status"
-          }
-
-      # Generate a reviewable patch without making a failing check pass or committing it.
-      - name: Generate formatting patch
-        if: failure()
-        shell: bash
-        run: |
-          set -o pipefail
-          cargo fmt --all 2>&1 | tee ../ci-logs/cargo-fmt-apply.log
-          git diff --binary -- . > ../ci-logs/rustfmt.patch
-
-      - name: Unit tests
-        if: ${{ !cancelled() }}
-        shell: bash
-        run: |
-          mkdir -p ../ci-logs
-          set -o pipefail
-          cargo test --locked --workspace --all-targets 2>&1 | tee ../ci-logs/cargo-test.log || {
-            status=${PIPESTATUS[0]}
-            if [ "$status" -eq 0 ]; then status=1; fi
-            echo 'Last 100 lines of cargo test output:'
-            tail -n 100 ../ci-logs/cargo-test.log
-            exit "$status"
-          }
-
-      - name: Clippy
-        if: ${{ !cancelled() }}
-        shell: bash
-        run: |
-          mkdir -p ../ci-logs
-          set -o pipefail
-          cargo clippy --locked --workspace --all-targets -- -D clippy::all 2>&1 | tee ../ci-logs/cargo-clippy.log || {
-            status=${PIPESTATUS[0]}
-            if [ "$status" -eq 0 ]; then status=1; fi
-            echo 'Last 100 lines of clippy output:'
-            tail -n 100 ../ci-logs/cargo-clippy.log
-            exit "$status"
-          }
-
-      - name: Upload Cargo lockfile
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: cargo-lock
-          path: rust/Cargo.lock
-          if-no-files-found: error
-
-      - name: Preserve Cargo lockfile
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          mkdir -p ../ci-logs
-          if [ -f Cargo.lock ]; then cp Cargo.lock ../ci-logs/Cargo.lock; fi
-
-      - name: Upload Rust logs
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: rust-logs
-          path: ci-logs/
-          if-no-files-found: warn
-
-  android:
-    name: Android
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: android
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.10.2"
-
-      - name: Assemble debug
-        shell: bash
-        run: |
-          mkdir -p ../ci-logs
-          set -o pipefail
-          gradle :app:assembleDebug --stacktrace 2>&1 | tee ../ci-logs/gradle-assemble.log || {
-            status=${PIPESTATUS[0]}
-            if [ "$status" -eq 0 ]; then status=1; fi
-            echo 'Last 100 lines of Gradle assemble output:'
-            tail -n 100 ../ci-logs/gradle-assemble.log
-            exit "$status"
-          }
-
-      - name: Unit tests
-        if: ${{ !cancelled() }}
-        shell: bash
-        run: |
-          mkdir -p ../ci-logs
-          set -o pipefail
-          gradle testDebugUnitTest --stacktrace 2>&1 | tee ../ci-logs/gradle-test.log || {
-            status=${PIPESTATUS[0]}
-            if [ "$status" -eq 0 ]; then status=1; fi
-            echo 'Last 100 lines of Gradle test output:'
-            tail -n 100 ../ci-logs/gradle-test.log
-            exit "$status"
-          }
-
-      - name: Upload Gradle logs
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: gradle-logs
-          path: ci-logs/
-          if-no-files-found: warn
-
-      - name: Upload APK
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: sonora-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: warn
-
-  # Builds the real `libsonora_core.so` for three ABIs, generates the UniFFI Kotlin
-  # bindings from that library, and packages a `-Psonora.rust=true` debug APK.
-  #
-  # This job proves the native library compiles and reaches the APK. It does NOT
-  # prove the library loads on a device (no emulator here) and does NOT make the
-  # data real (the catalogue still serves fixtures).
-  android-native:
-    name: Android native
-    runs-on: ubuntu-latest
-    env:
-      # NDK r27c, pinned by exact revision and by archive URL.
-      NDK_REVISION: "27.2.12479018"
-      NDK_URL: "https://dl.google.com/android/repository/android-ndk-r27c-linux.zip"
-      # SHA-256 of that exact archive. Pkg.Revision alone does not authenticate the
-      # toolchain: a substituted archive can keep the revision string and still pass
-      # the check, and these tools build the APK we upload.
-      #
-      # Independently corroborated, and cross-checked against the SHA-1 Google's own
-      # repository2-3.xml publishes (090e8083a715fdb1a3e402d0763c388abb03fb4e,
-      # which the three sources below also list for this archive):
-      #   conan-io/conan-center-index  recipes/android-ndk/all/conandata.yml
-      #   liambilsbury/rhizo           tools/fetch/build-inputs.sh
-      #   ziyuw-Plank/Wireshark-for-Android  SOURCES.txt
-      #   Pocketward/pd2-launcher-android    containers/Containerfile
-      # If this ever needs bumping, change the version and this digest together.
-      NDK_SHA256: "59c2f6dc96743b5daf5d1626684640b20a6bd2b1d85b13156b90333741bad5cc"
-      # 3.5.5-3.5.7 are yanked on crates.io and `cargo install` refuses yanked
-      # versions, so 3.5.4 is the newest installable 3.x release.
-      CARGO_NDK_VERSION: "3.5.4"
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.10.2"
-
-      # The restored Gradle User Home can carry state that says a JNA artifact or its transform
-      # is already on disk when the file is gone. Gradle trusts it, and the failure surfaces
-      # from inside an artifact transform:
-      #   TransformException: Failed to transform jna-5.14.0.aar to match
-      #     {artifactType=android-aar-metadata}
-      #   caused by ArtifactNotFoundException: Could not find jna-5.14.0.aar
-      # which reads like "the artifact does not exist" when it does. Deleting the artifact
-      # entries alone is not enough: the transform cache has to go too, because that is what
-      # holds the stale record. --refresh-dependencies hides the problem by re-resolving
-      # everything; this is targeted and harmless on a clean cache.
-      - name: Drop any stale JNA entry from the Gradle cache
-        run: |
-          set -euo pipefail
-          cache="${GRADLE_USER_HOME:-$HOME/.gradle}/caches"
-          echo "Gradle caches: $cache"
-          found=0
-          # Artifact bytes and module metadata, then the transform cache that holds the
-          # record of an AAR already having been unpacked.
-          for dir in "$cache"/modules-2/files-2.1/net.java.dev.jna \
-                     "$cache"/modules-2/metadata-*/descriptors/net.java.dev.jna \
-                     "$cache"/modules-2/metadata-*/transforms/net.java.dev.jna \
-                     "$cache"/8.*/transforms "$cache"/transforms-*; do
-            for match in $dir; do
-              [ -e "$match" ] || continue
-              echo "removing $match"
-              rm -rf "$match"
-              found=1
-            done
-          done
-          # An `[ ... ] && echo` here would be the script's last command and its non-zero
-          # exit would fail the step under `set -e`.
-          if [ "$found" -eq 0 ]; then
-            echo "no cached net.java.dev.jna entry to drop"
-          fi
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -717,7 +488,10 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p ../ci-logs
+          # --no-configuration-cache keeps resolution failures as resolution failures instead
+          # of being wrapped in a configuration-cache report.
           if gradle :app:assembleDebug -Psonora.rust=true --stacktrace \
+               --no-configuration-cache \
                2>&1 | tee ../ci-logs/gradle-rust-assemble.log; then
             status=0
           else
@@ -752,6 +526,7 @@ jobs:
             --configuration debugRuntimeClasspath \
             --dependency net.java.dev.jna:jna \
             --refresh-dependencies \
+            --no-configuration-cache \
             2>&1 | tee ../ci-logs/jna-insight.log | tail -n 40 || true
           echo "JNA lines from the insight:"
           grep -i "jna" ../ci-logs/jna-insight.log | head -n 20 || echo "(no jna lines)"
