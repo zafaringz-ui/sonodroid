@@ -10,7 +10,9 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  # `write` lets the Rust job commit the generated workspace lockfile back to the
+  # branch once. The push uses GITHUB_TOKEN, so CI runs it triggers do not recurse.
+  contents: write
 
 jobs:
   rust:
@@ -29,8 +31,26 @@ jobs:
           workspaces: rust
 
       - name: Generate Cargo lockfile
+        id: lockfile
         shell: bash
-        run: cargo generate-lockfile
+        run: |
+          if git ls-files --error-unmatch Cargo.lock >/dev/null 2>&1; then
+            echo "Cargo.lock is tracked; using the committed lockfile."
+            echo "tracked=true" >> "$GITHUB_OUTPUT"
+          else
+            cargo generate-lockfile
+            echo "Generating a lockfile for the first time; CI will commit it."
+            echo "tracked=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fail if the lockfile is git-ignored
+        shell: bash
+        run: |
+          if git check-ignore -q Cargo.lock; then
+            echo "::error::Cargo.lock is ignored by .gitignore; remove that entry."
+            exit 1
+          fi
+          echo "Cargo.lock is not ignored."
 
       - name: Formatting
         shell: bash
@@ -60,7 +80,7 @@ jobs:
         run: |
           mkdir -p ../ci-logs
           set -o pipefail
-          cargo test --workspace --all-targets 2>&1 | tee ../ci-logs/cargo-test.log || {
+          cargo test --locked --workspace --all-targets 2>&1 | tee ../ci-logs/cargo-test.log || {
             status=${PIPESTATUS[0]}
             if [ "$status" -eq 0 ]; then status=1; fi
             echo 'Last 100 lines of cargo test output:'
@@ -74,7 +94,7 @@ jobs:
         run: |
           mkdir -p ../ci-logs
           set -o pipefail
-          cargo clippy --workspace --all-targets -- -D clippy::all 2>&1 | tee ../ci-logs/cargo-clippy.log || {
+          cargo clippy --locked --workspace --all-targets -- -D clippy::all 2>&1 | tee ../ci-logs/cargo-clippy.log || {
             status=${PIPESTATUS[0]}
             if [ "$status" -eq 0 ]; then status=1; fi
             echo 'Last 100 lines of clippy output:'
@@ -96,6 +116,29 @@ jobs:
         run: |
           mkdir -p ../ci-logs
           if [ -f Cargo.lock ]; then cp Cargo.lock ../ci-logs/Cargo.lock; fi
+
+      # One-time bootstrap so `--locked` can be enabled in a follow-up change.
+      # Skips automatically once `rust/Cargo.lock` is tracked.
+      - name: Commit generated Cargo lockfile
+        if: ${{ success() && steps.lockfile.outputs.tracked == 'false' }}
+        shell: bash
+        env:
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if git ls-files --error-unmatch Cargo.lock >/dev/null 2>&1; then
+            echo "Cargo.lock is already tracked; nothing to commit."
+            exit 0
+          fi
+          if [ ! -f Cargo.lock ]; then
+            echo "::error::No Cargo.lock was generated; cannot bootstrap."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f Cargo.lock
+          git commit -m "Commit generated Cargo.lock"
+          git push origin "HEAD:refs/heads/$BRANCH"
 
       - name: Upload Rust logs
         if: ${{ always() }}
