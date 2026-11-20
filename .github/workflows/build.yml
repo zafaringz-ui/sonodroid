@@ -216,21 +216,28 @@ jobs:
         with:
           gradle-version: "8.10.2"
 
-      # The restored Gradle User Home can carry a JNA entry whose artifact bytes are missing
-      # while its metadata says otherwise. Gradle then trusts the entry, and the failure only
-      # surfaces when the AAR is transformed: ArtifactNotFoundException from inside
-      # TransformException, which reads like "the artifact does not exist" when it does.
-      # --refresh-dependencies hides it by re-resolving everything; dropping just this group
-      # is cheaper and keeps the rest of the cache. Harmless on a clean cache.
+      # The restored Gradle User Home can carry state that says a JNA artifact or its transform
+      # is already on disk when the file is gone. Gradle trusts it, and the failure surfaces
+      # from inside an artifact transform:
+      #   TransformException: Failed to transform jna-5.14.0.aar to match
+      #     {artifactType=android-aar-metadata}
+      #   caused by ArtifactNotFoundException: Could not find jna-5.14.0.aar
+      # which reads like "the artifact does not exist" when it does. Deleting the artifact
+      # entries alone is not enough: the transform cache has to go too, because that is what
+      # holds the stale record. --refresh-dependencies hides the problem by re-resolving
+      # everything; this is targeted and harmless on a clean cache.
       - name: Drop any stale JNA entry from the Gradle cache
         run: |
           set -euo pipefail
           cache="${GRADLE_USER_HOME:-$HOME/.gradle}/caches"
           echo "Gradle caches: $cache"
           found=0
-          # Artifact bytes (modules-2), then the module metadata that can also go stale.
+          # Artifact bytes and module metadata, then the transform cache that holds the
+          # record of an AAR already having been unpacked.
           for dir in "$cache"/modules-2/files-2.1/net.java.dev.jna \
-                     "$cache"/modules-2/metadata-*/descriptors/net.java.dev.jna; do
+                     "$cache"/modules-2/metadata-*/descriptors/net.java.dev.jna \
+                     "$cache"/modules-2/metadata-*/transforms/net.java.dev.jna \
+                     "$cache"/8.*/transforms "$cache"/transforms-*; do
             for match in $dir; do
               [ -e "$match" ] || continue
               echo "removing $match"
