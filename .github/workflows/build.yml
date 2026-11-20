@@ -355,6 +355,12 @@ jobs:
         run: |
           set -euo pipefail
           root=android/core-bridge/src/generated
+          echo "ci-logs contents:"; ls -la ci-logs || true
+          echo "uniffi-bindgen.log size: $(wc -c < ci-logs/uniffi-bindgen.log 2>/dev/null || echo missing)"
+          echo "---- bindgen log (first 20 lines) ----"
+          head -n 20 ci-logs/uniffi-bindgen.log 2>/dev/null || true
+          echo "---- bindgen log (last 20 lines) ----"
+          tail -n 20 ci-logs/uniffi-bindgen.log 2>/dev/null || true
           echo "Generated tree:"
           find "$root" -name '*.kt' -exec wc -l {} +
           f=$(find "$root" -name '*.kt' -path '*dev/sonora/core/ffi/*' -print -quit)
@@ -366,7 +372,7 @@ jobs:
               n=$((n + 1))
               [ "$n" -gt 12 ] && break
               echo "::error::bindgen-tail: $line"
-            done < <(tail -n 12 ../ci-logs/uniffi-bindgen.log 2>/dev/null || true)
+            done < <(tail -n 12 ci-logs/uniffi-bindgen.log 2>/dev/null || true)
             echo "Generated tree (full):"
             find "$root" -type f 2>/dev/null | head -n 40
             echo "any .kt anywhere in the workspace:"
