@@ -299,6 +299,12 @@ jobs:
       # Library mode requires the command to run inside the cargo workspace (it
       # resolves the component through cargo_metadata) and reads the ELF with
       # goblin, so the aarch64 build is fine on this x86_64 host.
+      #
+      # Toolchain split: the shared library is built with the pinned 1.85.0 from
+      # rust-toolchain.toml for reproducible output, but the `cli` feature pulls in
+      # uniffi_bindgen, whose dependency tree (textwrap 0.16.4) requires rustc 1.88.
+      # uniffi-bindgen is a host-side code generator, not part of the shipped
+      # artifact, so it runs with `+stable`. This does not affect the library.
       - name: Generate UniFFI Kotlin bindings from the built library
         working-directory: rust
         run: |
@@ -306,7 +312,10 @@ jobs:
           so=../android/core-bridge/src/main/jniLibs/arm64-v8a/libsonora_core.so
           out=../android/core-bridge/src/generated
           mkdir -p ../ci-logs
-          if cargo run -p mobile-core --features cli --bin uniffi-bindgen -- \
+          rustup toolchain install stable --profile minimal --no-self-update >/dev/null 2>&1 || true
+          echo "library toolchain: $(rustc --version)"
+          echo "bindgen toolchain: $(rustc +stable --version)"
+          if cargo +stable run -p mobile-core --features cli --bin uniffi-bindgen -- \
               generate \
               --library "$so" \
               --language kotlin \
