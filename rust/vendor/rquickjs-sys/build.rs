@@ -253,8 +253,7 @@ fn feature_to_define(name: impl AsRef<str>) -> String {
     name.as_ref().to_uppercase().replace('-', "_")
 }
 
-#[cfg(not(feature = "bindgen"))]
-fn bindgen<'a, D, H, X, K, V>(out_dir: D, _header_file: H, _defines: X, _add_cflags: Vec<String>)
+fn bundled_bindings_stub<'a, D, H, X, K, V>(out_dir: D, _header_file: H, _defines: X, _add_cflags: Vec<String>)
 where
     D: AsRef<Path>,
     H: AsRef<Path>,
@@ -292,7 +291,6 @@ where
     .unwrap();
 }
 
-#[cfg(feature = "bindgen")]
 fn bindgen<'a, D, H, X, K, V>(out_dir: D, header_file: H, defines: X, add_cflags: Vec<String>)
 where
     D: AsRef<Path>,
@@ -307,28 +305,13 @@ where
     let target = env::var("TARGET").unwrap();
     let host = env::var("HOST").unwrap();
 
-    // When cross-compiling with the `macro` feature, sys also gets built for the host.
-    // If LIBCLANG_PATH points at the cross toolchain (e.g. Android NDK), that host build
-    // generates mismatched bindings, so reuse the bundled binding for the host instead.
-    // `update-bindings` still regenerates; `RQUICKJS_SYS_FORCE_BINDGEN` (local patch)
-    // forces generation for the host, which is how the bindings get captured in CI.
-    if target == host
-        && env::var("CARGO_FEATURE_UPDATE_BINDINGS").is_err()
-        && env::var("RQUICKJS_SYS_FORCE_BINDGEN").is_err()
-    {
-        let bundled = Path::new("src")
-            .join("bindings")
-            .join(format!("{}.rs", target));
-        if bundled.exists() {
-            println!(
-                "cargo:warning=using bundled bindings for host target `{}` instead of running bindgen (enable the `update-bindings` feature to regenerate)",
-                target
-            );
-            fs::copy(&bundled, out_dir.join("bindings.rs"))
-                .expect("Unable to copy bundled bindings");
-            return;
-        }
-    }
+    // Local patch (VENDORED.md): generation is unconditional, so this host shortcut is
+    // gone. Two reasons it cannot stay. Upstream uses it to reuse the committed bindings
+    // when TARGET == HOST, which needs libclang only for Android - but keeping it means a
+    // host build on a machine without libclang silently gets a different layout than the
+    // one Android compiles against. And with generation always on, a host build is a free
+    // extra data point: one more ABI's layout to check the others against.
+    let _ = &host;
 
     let mut cflags = add_cflags;
 

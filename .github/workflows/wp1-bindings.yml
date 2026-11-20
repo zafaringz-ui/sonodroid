@@ -204,8 +204,10 @@ jobs:
         if: always()
         run: |
           # Fallback: if the dump variable did not reach a build script for some ABI, take
-          # bindgen's own output from the target directory instead. The triple is in the
-          # path, so the file still says which ABI it is.
+          # bindgen's own output from the target directory instead. Sanity-check every file
+          # first: a bindings file with no `pub fn JS_` in it is the 3-line stub that
+          # upstream's non-bindgen path writes, not generated bindings (that is how run
+          # 44776546926 "succeeded" while generating nothing).
           if [ ! -d /tmp/bindings ] || [ -z "$(ls -A /tmp/bindings 2>/dev/null)" ]; then
             mkdir -p /tmp/bindings
             for f in $(find rust/target rust/target-armv7 -path '*rquickjs-sys-*/out/bindings.rs' 2>/dev/null); do
@@ -214,6 +216,15 @@ jobs:
               echo "::notice title=binding-fallback::copied $f as fallback-${triple}.rs"
             done
           fi
+          for f in /tmp/bindings/*.rs; do
+            [ -f "$f" ] || continue
+            n=$(grep -c "pub fn JS_" "$f" || true)
+            if [ "${n:-0}" -lt 50 ]; then
+              echo "::error title=bindings-stub::$(basename "$f") has only ${n} externs — not generated bindings"
+            else
+              echo "::notice title=bindings-ok::$(basename "$f") ${n} externs, $(stat -c%s "$f") bytes"
+            fi
+          done
           ls -la /tmp/bindings 2>/dev/null || echo "no bindings directory"
           cd /tmp && if [ -d bindings ] && [ -n "$(ls -A bindings 2>/dev/null)" ]; then
             zip -q bindings.zip bindings/*.rs && ls -l bindings.zip

@@ -29,35 +29,38 @@ error: couldn't read .../src/bindings/aarch64-linux-android.rs: No such file or 
 
 The crate's own remedy is its `bindgen` feature: generate the bindings at build time
 instead of including a file that does not exist. That cannot be switched on from this
-repository, for two reasons, both measured rather than assumed:
+repository. Four attempts, each measured:
 
 1. `--features rquickjs-sys/bindgen` is rejected. Cargo only accepts `dep/feature` for a
    dependency of the *selected* package, and `rquickjs-sys` is transitive:
    `error: the package 'music' does not contain this feature: rquickjs-sys/bindgen`
    (run `44762272947`).
-2. `[patch.crates-io] rquickjs-sys = { path = ... }` does not reach the crate either:
-   `rquickjs-core` declares `rquickjs-sys` as a *workspace* dependency
-   (`rquickjs-sys = { workspace = true }`, `rquickjs-sys = { version = "0.12.2",
-   default-features = false }`), which cargo resolves against the workspace root, and
-   `[patch]` does not apply to workspace dependencies (run `44768718187`; the build still
-   failed with the same missing `bindings/aarch64-linux-android.rs`).
+2. `[patch.crates-io]` does not reach it either: `rquickjs-core` declares `rquickjs-sys` as
+   a *workspace* dependency (`rquickjs-sys = { workspace = true }`, `rquickjs-sys = { version
+   = "0.12.2", default-features = false }`), which cargo resolves against the workspace
+   root, and `[patch]` does not apply to workspace dependencies (run `44768718187`; the
+   build still failed on the missing `bindings/aarch64-linux-android.rs`).
+3. **Even a `[patch]` that did apply cannot switch the feature on.** `default-features =
+   false` on the `rquickjs-core` edge overrides any `default` set in this manifest. Measured
+   with the patch applied and resolving fine (run `44776546926`): the build still failed on
+   the same missing file, and the `bindings.rs` bindgen would have written was the 3-line
+   stub the crate writes when the feature is off.
+4. Editing the *published* `rquickjs-sys` manifest (its own `default`) does nothing, for the
+   same reason as 3: the dependent's `default-features = false` wins (run `44762958918`).
 
-Patching the *published manifest* by hand is therefore the only way to turn the feature on,
-and a patched published manifest is what a vendored copy is. Hence here, rather than a
-`[patch.crates-io]` entry.
-
-## What was changed, exactly
-
-Everything else is byte-for-byte the published crate.
+So the feature switch is removed rather than enabled:
 
 | File | Change |
 | --- | --- |
-| `Cargo.toml` | `default = ["bindgen"]` added under `[features]` (the crate has no `default` key of its own). |
-| `quickjs/` | The upstream crate declares this directory as a git submodule (`.gitmodules`: `path = sys/quickjs`, `url = https://github.com/quickjs-ng/quickjs.git`, commit `fd0a0210b7be00957751871e7e01b8291268fc29`). It is a **separate repository**, so `cargo package` leaves it empty and the published `.crate` contains no C sources. `build.rs` copies 18 files out of it, so this copy carries them: `cargo fetch` cannot materialise them. Only the 18 files `build.rs` names, plus upstream's `LICENSE`, are present — not the other ~4 MB of the quickjs-ng tree. |
-| `src/bindings/*.rs` | Kept, unchanged. For host builds `build.rs` reuses the bundled file for the host triple, so a host build never needs libclang. |
+| `Cargo.toml` | `bindgen-rs` is a non-optional build dependency; `bindgen`/`default` remain as **no-op** features so a manifest asking for them still resolves. |
+| `build.rs` | Generation is unconditional: the `#[cfg]` split between the stub and the bindgen implementation is gone, and so is the host shortcut that copied a committed file instead of generating one. |
+| `src/lib.rs` | Only `include!(concat!(env!("OUT_DIR"), "/bindings.rs"))`. The `#[cfg(not(feature = "bindgen"))]` include of the committed file is gone, which is the `couldn't read .../bindings/<triple>.rs` failure. |
+| `build.rs` (added) | Dumps the generated bindings to `$RQUICKJS_SYS_DUMP_BINDINGS` when that is set, and prints the layout lines, so CI can capture and compare them. |
+| `quickjs/` | The 18 files `build.rs` copies, materialised, because the published crate cannot supply them — see below. |
 
-`quickjs` is quickjs-ng 0.15.1 (`Set version to 0.15.1`), MIT licensed, `LICENSE`
-included here.
+Everything else is byte-for-byte the published crate. `src/bindings/*.rs` is still there,
+unchanged, but nothing includes it any more — it is kept so the patch is smaller and so a
+future upstream fix is easy to diff against.
 
 ## Licensing
 
@@ -77,8 +80,8 @@ a redistribution. This copy is part of the corresponding source we publish (see
   feature can be enabled — see the next section.
 
 Rebuild checklist on a `rquickjs` bump: re-copy `sys/` from the new tag, re-copy the 18
-quickjs files at the submodule commit the new tag records, re-apply the one-line
-`default = ["bindgen"]`, and update the versions in this file.
+quickjs files at the submodule commit the new tag records, re-apply the three patches in
+the table above, and update the versions in this file.
 
 ## Android caveat: bindgen needs a target
 
