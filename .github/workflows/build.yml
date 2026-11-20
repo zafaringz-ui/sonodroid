@@ -499,6 +499,31 @@ jobs:
           fi
 
       # No device here, so this is the closest thing to "did it package?".
+      # Regression check for the source-set gating: src/generated and jniLibs exist in
+      # this workspace after the step above, so a default build here reproduces the
+      # exact situation that used to break — generated code compiled without JNA.
+      - name: Default build still compiles with generated bindings present
+        run: |
+          set -o pipefail
+          rm -rf android/app/build/outputs/apk/debug
+          gradle :app:assembleDebug --console=plain 2>&1 | tee ../ci-logs/gradle-default-assemble.log | tail -n 25
+          demo=$(find android/app/build/outputs/apk/debug -name '*.apk' | head -n 1)
+          if [ -z "$demo" ]; then
+            echo "::error::No APK from the default build"
+            exit 1
+          fi
+          echo "Default APK: $demo ($(stat -c%s "$demo") bytes)"
+          # The demo APK must carry neither the Rust core nor JNA's dispatcher.
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            for lib in libsonora_core.so libjnidispatch.so; do
+              if unzip -l "$demo" | grep -q "lib/$abi/$lib"; then
+                echo "::error::Default APK unexpectedly packages lib/$abi/$lib; jniLibs gating is broken"
+                exit 1
+              fi
+            done
+          done
+          echo "Default APK carries no Rust or JNA native libraries."
+
       - name: Smoke-check native libraries inside the APK
         run: |
           set -euo pipefail
