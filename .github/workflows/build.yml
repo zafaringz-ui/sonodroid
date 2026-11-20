@@ -457,13 +457,26 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p ../ci-logs
-          gradle :app:assembleDebug -Psonora.rust=true --stacktrace 2>&1 | tee ../ci-logs/gradle-rust-assemble.log || {
+          if gradle :app:assembleDebug -Psonora.rust=true --stacktrace 2>&1 | tee ../ci-logs/gradle-rust-assemble.log; then
+            status=0
+          else
             status=${PIPESTATUS[0]}
             if [ "$status" -eq 0 ]; then status=1; fi
             echo 'Last 100 lines of Gradle output:'
             tail -n 100 ../ci-logs/gradle-rust-assemble.log
+            # Kotlin compile errors only appear in the log; mirror them into
+            # annotations, which are readable even when artifacts are not.
+            echo 'Kotlin/Java errors:'
+            grep -E '^e: |^w: .*(unresolved|cannot|none of the following)' ../ci-logs/gradle-rust-assemble.log | head -n 25 || true
+            n=0
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              n=$((n + 1))
+              [ "$n" -gt 15 ] && break
+              echo "::error::kotlin: $line"
+            done < <(grep -E '^e: ' ../ci-logs/gradle-rust-assemble.log | head -n 15 || true)
             exit "$status"
-          }
+          fi
 
       # No device here, so this is the closest thing to "did it package?".
       - name: Smoke-check native libraries inside the APK
