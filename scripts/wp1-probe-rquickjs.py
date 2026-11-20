@@ -30,6 +30,11 @@ import sys
 DEP_LINE = re.compile(r"^rquickjs-sys = (.*)$", re.MULTILINE)
 
 
+def note(message: str, title: str = "probe-body") -> None:
+    """Emit a GitHub workflow annotation. Plain stdout is not readable from here."""
+    print(f"::notice title={title}::{message}")
+
+
 def enable_bindgen(crate: pathlib.Path) -> int:
     manifest = crate / "Cargo.toml"
     text = manifest.read_text()
@@ -40,13 +45,17 @@ def enable_bindgen(crate: pathlib.Path) -> int:
         return 1
 
     value = match.group(1)
-    print(f"core dep before: rquickjs-sys = {value}")
+    note(f"core dep before: rquickjs-sys = {value}")
 
-    if "features" in value:
-        print("core dep already sets features; leaving it alone", file=sys.stderr)
+    # `default-features = false` must not be mistaken for an explicit `features` list.
+    if "features = [" in value.replace("default-features", "default_features"):
+        note("core dep already sets an explicit feature list; leaving it alone")
         return 1
 
     if value.startswith("{"):
+        # Keep whatever the published manifest already says (version, default-features)
+        # and add the feature. Note that `workspace = true` from the git tree is rewritten
+        # to a concrete version by cargo at publish time, so this is the normal case.
         new_value = value.replace("{", '{ features = ["bindgen"],', 1)
     else:
         # A bare version string, e.g. rquickjs-sys = "0.12.2".
@@ -55,7 +64,7 @@ def enable_bindgen(crate: pathlib.Path) -> int:
 
     text = text[: match.start(1)] + new_value + text[match.end(1) :]
     manifest.write_text(text)
-    print(f"core dep after:  rquickjs-sys = {new_value}")
+    note(f"core dep after: rquickjs-sys = {new_value}")
     return 0
 
 
@@ -117,7 +126,7 @@ def instrument_sys(crate: pathlib.Path) -> int:
     source = source.replace(ANCHOR, DUMP, 1)
 
     build_rs.write_text(source)
-    print(f"instrumented {build_rs}")
+    note(f"instrumented {build_rs}")
     return 0
 
 
