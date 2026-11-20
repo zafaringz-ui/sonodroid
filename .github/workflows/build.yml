@@ -215,11 +215,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.10.2"
-          # The JNA failure happens inside resolveArtifactFromCache, so a stale negative
-          # lookup in the restored Gradle User Home (modules-2) can outlive any change to
-          # the dependency declaration. Skip restoring it so this run resolves from scratch.
-          # Revert to caching once the build is green again.
-          cache-disabled: true
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -482,12 +477,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p ../ci-logs
-          # --no-configuration-cache: keep a resolution failure reported as itself rather
-          # than wrapped in a configuration-cache serialization error.
-          # --refresh-dependencies: ignore cached artifact metadata for this run, so a stale
-          # negative entry cannot mask the real result. Remove it once resolution is green.
           if gradle :app:assembleDebug -Psonora.rust=true --stacktrace \
-               --no-configuration-cache --refresh-dependencies \
                2>&1 | tee ../ci-logs/gradle-rust-assemble.log; then
             status=0
           else
@@ -521,7 +511,7 @@ jobs:
           gradle :app:dependencyInsight \
             --configuration debugRuntimeClasspath \
             --dependency net.java.dev.jna:jna \
-            --no-configuration-cache --refresh-dependencies \
+            --refresh-dependencies \
             2>&1 | tee ../ci-logs/jna-insight.log | tail -n 40 || true
           echo "JNA lines from the insight:"
           grep -i "jna" ../ci-logs/jna-insight.log | head -n 20 || echo "(no jna lines)"
