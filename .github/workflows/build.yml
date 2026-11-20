@@ -359,8 +359,16 @@ jobs:
           find "$root" -name '*.kt' -exec wc -l {} +
           f=$(find "$root" -name '*.kt' -path '*dev/sonora/core/ffi/*' -print -quit)
           if [ -z "$f" ]; then
-            echo "::error::No Kotlin bindings under $root/dev/sonora/core/ffi"
-            find "$root" -type f | head -n 40
+            echo "Generated tree (full):"
+            find "$root" -type f 2>/dev/null | head -n 40
+            echo "any .kt anywhere in the workspace:"
+            find . -name '*.kt' -newer .github/workflows/build.yml 2>/dev/null | head -n 20
+            path=$(find "$root" -name '*.kt' -print -quit 2>/dev/null || true)
+            if [ -n "$path" ]; then
+              echo "::error::Bindings were written to $path, which is not dev/sonora/core/ffi"
+            else
+              echo "::error::No .kt files were generated under $root at all"
+            fi
             exit 1
           fi
           echo "Bindings file: $f"
