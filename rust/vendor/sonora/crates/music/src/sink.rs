@@ -559,8 +559,7 @@ impl Paced {
 ///
 /// A device that is present is not enough: ALSA always names a default one, and without the
 /// sound server's plugin it never opens. Reporting it anyway would restart the engine every poll,
-/// and dropping librespot's player joins its thread on the main one, so the watch waits until a
-/// stream actually opens.
+/// so the watch waits until a stream actually opens.
 pub fn watch_for_output(notify: UnboundedSender<()>) {
     std::thread::spawn(move || {
         while !notify.is_closed() {

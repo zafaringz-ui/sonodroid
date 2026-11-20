@@ -1,18 +1,13 @@
 mod aac;
-pub mod apple;
 pub mod artwork;
 mod audio;
-pub mod binimum;
 mod calendar;
-pub mod connect;
 pub mod cover;
 pub mod credentials;
 pub mod deezer;
-pub mod drm;
 pub mod engine;
 pub mod equalizer;
 pub mod escape;
-pub mod jellyfin;
 pub mod kugou;
 pub mod link;
 #[cfg(test)]
@@ -32,13 +27,9 @@ mod redact;
 pub mod scrobble;
 mod sink;
 pub mod smart;
-pub mod soloist;
 mod spectrum;
 mod sponsorblock;
-pub mod spotify;
 mod stream;
-pub mod subsonic;
-pub mod tidal;
 mod trim;
 pub mod trouble;
 pub mod vault;
@@ -124,12 +115,6 @@ pub enum Report {
 pub trait MusicApi: Send + Sync {
     fn alive(&self) -> bool {
         true
-    }
-
-    /// The provider's device network, for a provider that has one. Spotify Connect is the
-    /// only one so far.
-    fn connect(&self) -> Option<Arc<connect::Connect>> {
-        None
     }
 
     /// A cover url this provider handed out, at `size`. It is worked out from the url alone,
@@ -601,8 +586,10 @@ pub struct TrackSignal {
     pub rate: u32,
     pub channels: u16,
     pub normalisation: Normalisation,
-    /// Whether the engine plays it to the system's output by itself, as Soloist does. Nothing
-    /// of Sonora's own sound path then touches it: no equalizer, no resampler, no chosen device.
+    /// Whether the engine plays it to the system's output by itself, bypassing Sonora's sound
+    /// path: no equalizer, no resampler, no chosen device. Nothing sets this since the Soloist
+    /// provider was removed (docs/AUDIT.md §13); the flag is kept because it describes the
+    /// audio chain rather than a provider, and a future sink may need it.
     pub direct: bool,
 }
 
@@ -612,8 +599,8 @@ pub enum Normalisation {
     Off,
     /// A fixed gain in decibels, zero when nothing says how loud the track is.
     Gain(f32),
-    /// Spotify's players, librespot and Soloist, normalise inside themselves with a limiter, so
-    /// the gain is not known and changes with the music.
+    /// The player normalises inside itself with a limiter, so the gain is not known and changes
+    /// with the music.
     Limited,
 }
 
@@ -945,10 +932,9 @@ pub struct Capabilities {
 }
 
 impl Capabilities {
-    /// What a full streaming service offers. Pins of the provider's own are not among them,
-    /// since only Spotify and Apple Music keep any. Converting on request is not either, since
-    /// only Subsonic does it. Playlist covers, order and smart playlists are left for each
-    /// provider to turn on.
+    /// What a full streaming service offers. Pins of the provider's own are not among them, and
+    /// neither is converting on request. Playlist covers, order and smart playlists are left for
+    /// each provider to turn on.
     pub const ALL: Self = Self {
         follow_artists: true,
         radio: true,
@@ -1218,16 +1204,6 @@ pub trait MusicProvider: Send + Sync {
     /// name; one that is only the user's own files says what the files are instead.
     fn listening_to(&self) -> &'static str {
         self.name()
-    }
-    /// Whether this provider's tracks need the Widevine module to play. The app fetches the
-    /// module once such a provider has an account, and does not go near it otherwise.
-    fn protected(&self) -> bool {
-        false
-    }
-    /// Whether this provider can play through Soloist, Spotify's own headless player, on this
-    /// computer. The app offers its setup while such a provider is the current one.
-    fn soloist(&self) -> bool {
-        false
     }
     /// Whether the artwork urls this provider hands out can be given to another service. A path
     /// on disk means nothing elsewhere, and a self-hosted url carries the credentials that fetch

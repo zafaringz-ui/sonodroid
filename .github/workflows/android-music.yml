@@ -95,13 +95,15 @@ jobs:
           done
           echo "::notice title=cargo-ndk::$(cargo ndk --version 2>&1 | tail -n 1)"
 
-      # The patch is committed now, together with the lockfile it requires, so this run
-      # proves the committed state rather than a runtime edit. Committing them apart would
-      # have broken every --locked job in between: the vendored crate puts bindgen 0.72 and
-      # clang-sys in the graph, and the lock that records them has to land in the same
-      # commit. The job no longer needs to touch Cargo.toml.
+      # Cheap, and first because it needs no toolchain: a provider Release 1 does not ship
+      # must not come back (docs/AUDIT.md §13).
+      - name: Scope check (Release 1 providers only)
+        run: python3 scripts/check-scope.py
+
       # Proves the committed lockfile is complete: --locked must fail if it is not, which
-      # is the same gate every other job uses.
+      # is the same gate every other job uses. The patch in rust/Cargo.toml and the lockfile
+      # that records it were committed together on purpose: apart, the patch breaks every
+      # --locked job and the lockfile describes a graph nothing asks for.
       - name: Resolve the lockfile with the bindgen graph
         working-directory: rust
         timeout-minutes: 15
@@ -148,6 +150,21 @@ jobs:
 
       # One ABI per step so a failure names its own ABI. `check` builds the build scripts
       # and the C, so the bindings are generated exactly as a release build would.
+      # A host build too: `cargo check` for the runner's own target exercises the cfg
+      # branches an Android cross-check never compiles, and it is where a removed provider
+      # shows up first as an unresolved name rather than as a link error.
+      - name: "music for the host"
+        working-directory: rust
+        timeout-minutes: 20
+        run: |
+          set -o pipefail
+          if cargo check -p music --locked > /tmp/host.log 2>&1; then
+            echo "::notice title=abi-host::PASS"
+          else
+            echo "::error title=abi-host::FAIL"
+          fi
+          echo "::error title=abi-host-tail::$(tail -n 25 /tmp/host.log | tr '\n' '%0A' | head -c 6000)"
+
       - name: "music for aarch64-linux-android"
         working-directory: rust
         timeout-minutes: 15
@@ -296,4 +313,4 @@ jobs:
       - name: Verdict
         if: always()
         run: |
-          echo "::notice title=verdict::read resolve, lock-added, abi-aarch64, abi-x86_64, abi-armv7, layouts, built. Artifacts: cargo-lock and bindings."
+          echo "::notice title=verdict::read resolve, lock-added, abi-host, abi-aarch64, abi-x86_64, abi-armv7, layouts, built. Artifacts: cargo-lock and bindings."

@@ -10,12 +10,12 @@ pub(crate) const FILE: &str = "credentials.json";
 
 /// What each provider used to keep beside its sign-in in the cache folder, by slug. These files
 /// move into the accounts folder on the first launch that finds them there.
+///
+/// Trimmed for Release 1 alongside the providers themselves: only the two providers that are
+/// still built keep a row. The migration is for sign-ins an older Sonora left behind, and a
+/// build without those providers never had any.
 const MOVED: &[(&str, &[&str])] = &[
-    ("apple", &[FILE, "bearer.json"]),
     ("deezer", &[FILE]),
-    ("spotify", &[FILE, "device-id"]),
-    ("subsonic", &[FILE]),
-    ("tidal", &[FILE]),
     ("youtube", &[FILE, "cookies.json"]),
 ];
 

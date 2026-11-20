@@ -1228,8 +1228,85 @@ answer this because cargo stops at the first hard error and `rquickjs-sys` faile
 
 ### What is still not done
 
-- The **trim** has not started, and this was the point of the gate: it now compiles, so the
-  trim can be measured instead of guessed.
 - `main`'s "Android native" job still builds only `mobile-core`, which does not depend on
   `music`, so it is unaffected by any of this. Wiring `music` into the shipped core is a
   separate task and the place where `BINDGEN_EXTRA_CLANG_ARGS` has to be set for real.
+- The trim landed separately, in §13, because proving the build and changing the source are
+  two different claims.
+
+---
+
+## 13. WP-1 trim: the providers Release 1 does not ship are gone
+
+Release 1 is Deezer, YouTube Music and local files (`docs/PLAN.md` §2). `PLAN.md` §3 lists
+what to remove; this section records what was actually removed, and what deliberately was
+not.
+
+### Removed
+
+| Path | LoC | Why |
+| --- | --- | --- |
+| `crates/music/src/spotify/` (28 files) | 9 853 | Spotify provider, its Connect device network and its librespot-backed playback |
+| `crates/music/src/apple/` (9 files) | 6 455 | Apple Music; also the only user of the Widevine CDM |
+| `crates/music/src/tidal/` (7 files) | 4 988 | Tidal |
+| `crates/music/src/jellyfin/` (8 files) | 4 412 | Jellyfin |
+| `crates/music/src/subsonic/` (6 files) | 4 281 | Subsonic, the only user of `opensubsonic` |
+| `crates/music/src/soloist/` (8 files) | 2 863 | Spotify's headless player, and the librespot client it wraps |
+| `crates/music/src/binimum/` (1 file) | 164 | Lossless-hosting scrapers, unreachable without the handlers that used them |
+| `crates/music/src/connect.rs` | 332 | Spotify Connect's device model, used only through the `Provider::connect` hook |
+| `crates/music/src/drm.rs` | 11 | The Widevine façade; a re-export module for the removed Apple provider |
+| `crates/music/src/live_tests/` (6 of 8 files) | — | Tests that drove the removed providers; `playlist_ownership.rs` is provider-neutral and stays |
+
+**33 359 LoC of provider code**, 49% of the 68 321 lines `crates/music/src` held at
+`v0.50.2` (§1g). Recounted against the pristine clone for this table, not estimated. Verified by `scripts/check-scope.py`, which fails if any of those
+directories, module declarations or dependency names come back; it is wired into the
+`android-music` workflow.
+
+Three hooks came off the `Provider` trait with them, rather than left as dead defaults that
+would invite a provider back: `connect()` (Spotify Connect), `soloist()` (Soloist) and
+`protected()` (Widevine). The one that stayed is `Normalisation::Limited`, because it
+describes a loudness behaviour of the audio chain, not a provider.
+
+### Dependencies removed
+
+From `crates/music/Cargo.toml`: `librespot-core`, `librespot-playback`,
+`librespot-protocol`, `gethostname`, `oauth2`, `opensubsonic`, `protobuf`,
+`tokio-tungstenite`. From the workspace root: the same three `librespot-*` entries,
+`oauth2`, `opensubsonic` and `gethostname`, plus **all six `librespot-*` `[patch.crates-io]`
+entries**, which existed only for the Spotify engine. `rust/Cargo.toml`'s `[patch]` table is
+now two entries: `rquickjs-sys` (§12a) and `rodio`.
+
+### Kept on purpose
+
+- **`widevine`** — it is a workspace member, and removing it from the workspace is not this
+  task. Nothing in `music` uses it now: the feature is off by default and its only consumer
+  was `apple/`. **The next cleanup should drop the crate from the workspace and the feature
+  from `music` together**; they are one decision, not two.
+- **`protobuf` and `tokio-tungstenite`** — removed here because only `librespot-*` pulled
+  them, but they are general crates rather than provider code; the scope check reports them
+  as a note instead of a failure so a later task can bring them back without a fight.
+- **`Normalisation::Limited`, `Download::direct`, `Vault::foreign`** — the parts of the audio
+  and storage model the removed providers *used*. They describe the design (`docs/AUDIT.md`
+  §1f), and removing them would change behaviour of code that has nothing to do with
+  providers.
+
+### Stale comments corrected
+
+Five comments in code that survives described the removed providers as live code paths
+(`engine.rs` on which providers implement `Fetch`, `lib.rs` on Soloist and on
+`Capabilities::ALL`, `sink.rs` on why output watching waits, `trouble.rs` on where its
+error fragments come from, `vault.rs` on Apple's Widevine path and Spotify's files). They
+now say what is true, and the two that describe removed behaviour say so explicitly with a
+pointer here, so a reader does not think the feature is merely unused.
+
+### What this does not claim
+
+- **It has not been compiled yet.** The evidence will be the `android-music` run on this
+  branch. Removing a provider can only fail in `music`'s own module graph, which the gate
+  builds, so that run is the check — not a local one, since this environment has no
+  toolchain.
+- Nothing was changed under `crates/storage`, `crates/widevine` or `mobile-core`.
+- The five providers are gone from the **build**, not from the plan: Track A (Jellyfin,
+  Subsonic) and Track B (Tidal, Spotify, Apple) are `docs/PLAN.md`'s expansion tracks, and
+  restoring one means restoring its directory, `lib.rs` line and dependencies from the
+  pristine copy at `rust/vendor/UPSTREAM.md`'s commit.
