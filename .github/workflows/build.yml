@@ -319,9 +319,11 @@ jobs:
           readelf -SW "$so" | grep -E 'symtab|dynsym|uniffi' || true
           echo "static symtab uniffi symbols: $(readelf -sW "$so" | grep -c 'uniffi_' || true)"
           echo "dynamic symtab uniffi symbols: $(readelf -sW --dyn-syms "$so" | grep -c 'uniffi_' || true)"
-          echo "checksum symbols in static symtab:"
-          readelf -sW "$so" | grep 'uniffi_sonora_core_checksum' | head -n 5 || echo "(none)"
-          if ! readelf -sW "$so" | grep -q 'uniffi_sonora_core_checksum_function_'; then
+          echo "metadata symbols in static symtab:"
+          readelf -sW "$so" | grep -i 'UNIFFI_META_SONORA_CORE' | head -n 5 || echo "(none)"
+          # rustc upper-cases `#[no_mangle]` symbols on the Android targets, so the
+          # metadata appears as UNIFFI_META_*, not uniffi_meta_*.
+          if ! readelf -sW "$so" | grep -qi 'UNIFFI_META_SONORA_CORE'; then
             echo "::error::No uniffi_* metadata symbols in the static symbol table; bindgen library mode cannot work"
             echo "::error::sections: $(readelf -SW "$so" | grep -E 'symtab|dynsym' | tr -s ' ' | tr '\n' ';')"
             echo "::error::symbol count: $(readelf -sW "$so" | wc -l)"
