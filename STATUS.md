@@ -47,11 +47,14 @@ The targeted Kotlin changes and CI logging changes are **implemented but unteste
 The later CI run 44601275727 reported failures in Android assembly/tests and Rust
 formatting/tests/Clippy; its detailed error logs have not been supplied.
 
-- **Verified — upstream pin:** `git -C vendor/sonora describe --tags --exact-match`
-  printed `v0.50.2`; `git submodule status` printed commit
-  `c0b501cf4c138e55670a390240fadb7577c3913a` at `vendor/sonora`. Upstream declares
-  GPL-3.0-or-later; see `docs/UPSTREAM-DEPENDENCIES.md` for the direct dependency
-  inventory and audit limitations. It is not linked to the app.
+- **Verified — upstream source:** `music`, `storage` and `widevine` are vendored in
+  `rust/vendor/sonora/crates/`, byte-identical to upstream `v0.50.2`
+  (`c0b501cf4c138e55670a390240fadb7577c3913a`); see `rust/vendor/UPSTREAM.md`. They are
+  workspace members and `cargo check -p music --locked` passes on host Linux, but
+  **they are not linked into the app**: `mobile-core` does not depend on `music`, so the
+  shipped `.so` contains none of it yet. Upstream declares GPL-3.0-or-later. The
+  `vendor/sonora` submodule was removed once vendoring landed (see `docs/AUDIT.md` §0
+  and §11).
 - **Verified — structural check only:** `python3 scripts/check-resources.py` printed
   `Resources and brace balance look fine.` This does not check Kotlin/Rust compilation.
 - **Implemented but untested — Gradle wrapper:** official Gradle v8.10.2 wrapper

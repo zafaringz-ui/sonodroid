@@ -1,3 +1,0 @@
-[submodule "vendor/sonora"]
-	path = vendor/sonora
-	url = https://github.com/sonorahq/sonora.git

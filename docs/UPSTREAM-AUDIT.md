@@ -3,7 +3,9 @@
 Inspected [Sonora v0.50.2](https://github.com/sonorahq/sonora/tree/v0.50.2),
 commit `c0b501cf4c138e55670a390240fadb7577c3913a`. This is a source inspection,
 not a build, dependency audit, security review, or proof of Android compatibility.
-The upstream source is pinned as the `vendor/sonora` submodule; its dependencies have not yet been integrated into the build.
+The upstream source is vendored in `rust/vendor/sonora/crates/` and is now a workspace member;
+it is still not linked into the app, because `mobile-core` does not depend on `music`.
+See `docs/AUDIT.md` §11 for what the vendoring settled.
 
 ## What is reusable and what needs adaptation
 

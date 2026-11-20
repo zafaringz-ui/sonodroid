@@ -16,29 +16,38 @@ it with `grep -n`; where it came from a `sed` window I say so.
 
 ## 0. How upstream is pinned
 
-**Chosen: the existing git submodule.** `.gitmodules` already declares
-`vendor/sonora` → `https://github.com/sonorahq/sonora.git`, and the tree already points it at
+**Superseded by §11: upstream is now vendored in-tree.** This section described the submodule
+pin that was in place when this audit was written, and it is kept because the reasoning still
+explains *why* the submodule came first. It no longer describes the tree: `vendor/sonora` and
+`.gitmodules` were removed after `rust/vendor/sonora/` took over.
+
+*What was true at the time of writing.* `.gitmodules` declared `vendor/sonora` →
+`https://github.com/sonorahq/sonora.git`, and the tree pointed it at
 `c0b501cf4c138e55670a390240fadb7577c3913a` (`git ls-tree HEAD vendor/` → `160000 commit c0b501c…`),
-which is exactly `v0.50.2`. Nothing in this PR needed to change.
+which is exactly `v0.50.2`. All three CI jobs used `actions/checkout@v4` **without**
+`submodules: true`, so they checked out an empty `vendor/sonora` and no CI job read it. The pin
+could not break CI because nothing consumed it.
 
-*Why a submodule and not a vendored copy:* the checkout stays a pointer, so the repository is not
-inflated by 21 MB of GPL sources and review diffs never contain upstream files. All three CI jobs
-use `actions/checkout@v4` (`.github/workflows/build.yml` lines 23, 126, 208) **without**
-`submodules: true`, so today they check out an empty `vendor/sonora` directory and no CI job reads
-it. That is why the pin cannot break CI: nothing consumes it.
+*Why that was the right first step.* The checkout stayed a pointer, so the repository was not
+inflated by 21 MB of GPL source and review diffs contained no upstream files. It was also a real
+limitation: `vendor/sonora` was empty in a fresh clone until `git submodule update --init` ran, so
+no command could read it without that step.
 
-*Cost.* `vendor/sonora` is empty in a fresh clone until `git submodule update --init vendor/sonora`
-runs, so no command in this repo can read it without that step. Every path in this document
-therefore assumes the submodule has been initialised; `STATUS.md` line ~97 already lists the init
-command in its "local commands" block.
+*Why it was replaced.* A submodule cannot be a workspace member. Building `music` requires the
+source in the tree, at a path Cargo can resolve, under version control with the rest of the
+workspace — so PR #14 copied the three crates to `rust/vendor/sonora/crates/` and pinned the
+compiler to upstream's 1.98.1.
 
-*Rejected: shallow vendored copy.* It would have meant ~21 MB of third-party GPL source in-tree,
-duplicating a pin that already existed, and it would have been the only way to make CI read
-upstream files — which nothing needs yet (see [§8](#1h-proposed-phase-b-task-list)).
+*Why the submodule was then deleted rather than kept.* Keeping both pins means two things that can
+drift, and the submodule's only job — recording provenance — is already done better by
+`rust/vendor/UPSTREAM.md`, which states the repo, tag, commit and copied paths next to the files
+that are actually compiled. It was also still checked out empty by every CI job, so it never
+verified anything.
 
-*Licensing consequence of the submodule form.* A submodule is a reference, not distribution, so
-keeping `vendor/sonora` unpopulated ships nothing. The GPL obligations in [§1a](#1a-license-obligations)
-begin when a built `.so` containing upstream code is distributed in an APK, not when the pin exists.
+*Licensing consequence of the change.* This one is real and matters: a submodule is a reference,
+whereas vendoring is **distribution**. Upstream code is now in this repository, and once a built
+`.so` containing it ships in an APK, GPL-3.0 §6 corresponding-source obligations attach to our own
+tree too — see [§1a](#1a-license-obligations) item 1, which anticipated exactly this.
 
 ---
 
@@ -65,10 +74,12 @@ This is an engineering summary of the obligations, not legal advice.
    corresponding source: our own Rust crates *and* upstream's, at the exact revision we built,
    plus the build scripts needed to produce the same binary. GPL-3.0 §6 (`COPYING`, the "Conveying
    Non-Source Forms" section) is the operative clause.
-2. **The submodule pin is not enough on its own.** `vendor/sonora` pointing at a public tag
-   satisfies "where to get it" only while that tag exists. If we patch upstream — and [§8](#1h-proposed-phase-b-task-list)
-   says we will — the patched tree becomes the corresponding source, so our fork must be published
-   too, not just referenced.
+2. **A pin is not enough on its own, which is why vendoring changed this obligation.** A
+   submodule pointing at a public tag satisfied "where to get it" only while that tag exists. The
+   code is now in-tree (§11), so the corresponding source is this repository at the released
+   commit — which is a release-process step (tag the build), not a separate fork to publish. As soon
+   as we patch the vendored tree — and [§8](#1h-proposed-phase-b-task-list) says we will — those
+   patches are part of what we must ship, which is exactly what an in-tree copy makes straightforward.
 3. **Notices and license text in the app.** GPL-3.0 §5 requires prominent notices of modification
    and the license. We must ship `COPYING` and our third-party notices in an in-app screen; the
    existing `THIRD-PARTY.md` (137 KB, generated by `scripts/generate-notices.py`) is the obvious
@@ -133,9 +144,11 @@ Section locations I actually checked: MPL list opens at `THIRD-PARTY.md` line 10
   explicitly *not* `native-tls`. `rustls 0.23.46` and `rustls-platform-verifier 0.7.1` are in the
   lockfile, and `rustls-platform-verifier-android 0.2.0` is too, which is what makes certificate
   verification work on Android without shipping a CA bundle.
-- **`aws-lc-rs 1.19.0`** is in the graph (via `quinn-proto`, `rustls-webpki`, `tokio-tungstenite`)
-  and is ISC/Apache-2.0-licensed but **builds C and assembly** — a build concern, not a licensing
-  one. See [§1c](#1c-android-blockers).
+- **`aws-lc-rs 1.19.0`** is in the graph and is ISC/Apache-2.0-licensed but **builds C and
+  assembly** — a build concern, not a licensing one. The path is `opensubsonic 0.7.0 → reqwest 0.13
+  "rustls"`, confirmed by the real `Cargo.lock` after vendoring; the earlier guess of
+  `quinn-proto`/`rustls-webpki`/`tokio-tungstenite` was wrong because those edges are optional and
+  nothing enables them. See §11.
 - **Widevine** (`crates/widevine`, 2,889 LoC) is an integration shim around Google's CDM. It is
   dropped for Release 1 anyway: `crates/music/Cargo.toml` lines 7–10 define the `widevine` feature
   as `["widevine/cdm"]` and it is off by default.
@@ -148,7 +161,8 @@ file in the repo. PLAN.md §3 wants these assets reused, so this is live.
 
 ### Obligations checklist for the release
 
-- [ ] Publish the fork (patched `vendor/sonora`) as corresponding source, tagged to the build.
+- [ ] Publish corresponding source, tagged to the build. Vendoring (PR #14) means the tagged
+      source **is** this repository now, so this is a release-process step, not a fork to push.
 - [ ] Ship `COPYING` in the APK and show it in an about screen.
 - [ ] Ship `THIRD-PARTY.md` content, including the CC BY 4.0 attribution for Solar icons.
 - [ ] Keep `kakasi`'s GPL-3.0-only notice; do not claim "GPL-3.0-or-later" for the app if it stays.
@@ -310,12 +324,18 @@ providers we drop:
   support for all three of our ABIs; the NDK toolchain already builds it in `Android native` today —
   but for the *current* crate set, which does not include `ring`'s use here. **verify** on a real
   cross-compile.
-- **`aws-lc-rs 1.19.0` / `aws-lc-sys 0.47.0`** enter via `quinn-proto`, `rustls-webpki` and
-  `tokio-tungstenite` (Cargo.lock lines 6183, 6943, 7007). `aws-lc-sys` is a **CMake/C** build, the
-  most likely Android build failure in the whole graph. Mitigation already present in the manifest:
-  reqwest is `rustls-no-provider` (`Cargo.toml` line 163), so no crypto provider is chosen for us,
-  and `ring` is a direct dependency — installing `ring` as the process-wide provider avoids
-  initialising `aws-lc`. **verify** that `aws-lc-sys` is not pulled in unavoidably.
+- **`aws-lc-rs 1.19.0` / `aws-lc-sys 0.47.0`** enter through **`opensubsonic 0.7.0`**, whose
+  `reqwest = { features = ["json", "rustls", "stream"] }` selects reqwest 0.13's
+  provider-carrying `rustls` feature. The originally recorded path — `quinn-proto`,
+  `rustls-webpki`, `tokio-tungstenite` — was wrong: all three declare `aws-lc-rs` as optional and
+  enable `ring` instead, and `quinn` is only reachable from reqwest's `http3` feature, which nothing
+  turns on. Corrected from the real `Cargo.lock` after vendoring (§11).
+  `aws-lc-sys` is a **CMake/C** build, the most likely Android build failure in the whole graph.
+  Mitigation already present in the manifest: reqwest is `rustls-no-provider`
+  (`rust/Cargo.toml`), so no crypto provider is chosen for us, and `ring` is a direct dependency —
+  installing `ring` as the process-wide provider avoids initialising `aws-lc`, but **it does not
+  stop `aws-lc-sys` from being compiled**, because feature unification builds it regardless.
+  **verify** that `aws-lc-sys` is not pulled in unavoidably.
 - **No OpenSSL anywhere** (`grep 'name = "openssl"' Cargo.lock` → no match), and no `native-tls`,
   so the "move to rustls only" part of the task is already done upstream. What remains is stopping
   `aws-lc` from being the provider actually used.
@@ -912,7 +932,8 @@ Everything below is either unread, or read but not executed. Nothing here should
 11. Whether `aws-lc-sys` is unavoidable in the dependency graph, or whether installing `ring` as the
     rustls provider removes it. Needs an actual resolved tree per target.
 12. Unique crate count in `THIRD-PARTY.md` — the 809 figure is entries, with duplicates (§1a).
-13. Line numbers are correct as of commit `c0b501c` and will drift on any `vendor/sonora` bump.
+13. Line numbers into upstream were correct as of `c0b501c`; they refer to
+    `rust/vendor/sonora/crates/` since vendoring, and drift on any upstream bump.
     Re-grep before relying on one.
 14. The cause of the CI breakage described in §10. The facts and the fix candidates are verified;
     the mechanism is my inference.
