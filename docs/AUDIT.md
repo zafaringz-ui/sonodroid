@@ -1012,3 +1012,58 @@ So: the APK step failing was a Gradle cache problem and should not have been rea
 signal — but §1c's `aws-lc-sys` risk is still **untested**, not refuted. It gets exercised the first
 time `music` is actually pulled into `mobile-core`, which is the point of WP-1, and which is why WP-1
 is the riskiest item on the list.
+
+---
+
+## 11. Vendoring landed: what changed, and the numbers it moved
+
+PR #14 merged at `0215f3c`. `crates/music`, `crates/storage` and `crates/widevine` now live in
+`rust/vendor/sonora/crates/` as workspace members at `v0.50.2` (`c0b501c`), and the toolchain is
+**1.98.1** rather than 1.85.0 — the compiler upstream resolves and builds against. `mobile-core`
+still does not depend on `music`.
+
+### Two claims in this document are now settled by a real resolution
+
+`rust/Cargo.lock` is Cargo's own output, not a hand-merge, so the graph below is no longer inferred
+from lockfile blocks plus cloned manifests:
+
+- **`aws-lc-sys 0.47.0` is in the graph**, `ring 0.17.14` alongside it, `rusqlite 0.43.0` with
+  `libsqlite3-sys 0.40.0` (C amalgamation), `rquickjs 0.12.2`, `opusic-sys 0.7.7`,
+  `opensubsonic 0.7.0`. §1c's concern is real, not theoretical.
+- The **§1c attribution was wrong** and is corrected in §10: `aws-lc-rs` does not arrive via
+  `quinn-proto`/`rustls-webpki`/`tokio-tungstenite`; those are optional edges that nothing enables.
+  It arrives through `opensubsonic 0.7.0 → reqwest 0.13 "rustls"`.
+
+What a host build proved, and what it did not:
+
+- **Proved:** `cargo check -p music --locked` passes on host Linux, unmodified, no source edits.
+  `cargo metadata --locked` passes. apt packages needed: `pkg-config libasound2-dev libpulse-dev
+  cmake nasm clang libclang-dev`.
+- **Not proved:** the **Android cross-compile of `music` has still never been attempted.** The
+  existing `Android native` job builds `-p mobile-core` only, whose closure is nine crates and no
+  TLS stack. WP-1 is therefore still the first real test of `aws-lc-sys`/`ring`/`libsqlite3-sys`
+  against NDK r27c.
+
+### `.so` sizes moved with the compiler — the armeabi-v7a delta needs to be remembered
+
+Same source, same flags, only the compiler changed 1.85.0 → 1.98.1:
+
+| ABI | 1.85.0 | 1.98.1 | Δ |
+| --- | --- | --- | --- |
+| arm64-v8a | 4,700,024 B | 5,106,544 B | +8.6% |
+| armeabi-v7a | 3,839,012 B | 4,383,488 B | **+14.2%** |
+| x86_64 | 4,571,520 B | 5,030,008 B | +10.0% |
+
+`mobile-core`'s dependency closure is byte-for-byte identical before and after (94 packages, zero
+version changes), so nothing entered the binary. 32-bit ARM absorbs a codegen change worst because
+it has no 64-bit registers, so spill/reload and relay code costs proportionally more. That is an
+explanation consistent with the evidence, **not a measurement** — proving it needs both toolchains
+to diff codegen. Recorded here so a future size regression is compared against 5,106,544 /
+4,383,488 / 5,030,008 rather than against the pre-vendor numbers.
+
+### The vendor patch surface, and when it shrinks
+
+`rust/Cargo.toml` carries seven `[patch.crates-io]` entries copied from upstream: `rodio @ 880aaba`
+(because `music` asks for rodio's `symphonia-libopus` feature, which published `rodio 0.22.2` does
+not have) and all six `librespot-* @ c3bbdf7`. **The six librespot patches come out in WP-8**, when
+Spotify is gated out; the `rodio` patch stays as long as `music`'s audio path keeps `symphonia-libopus`.
