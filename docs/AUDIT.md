@@ -1088,3 +1088,73 @@ to diff codegen. Recorded here so a future size regression is compared against 5
 (because `music` asks for rodio's `symphonia-libopus` feature, which published `rodio 0.22.2` does
 not have) and all six `librespot-* @ c3bbdf7`. **The six librespot patches come out in WP-8**, when
 Spotify is gated out; the `rodio` patch stays as long as `music`'s audio path keeps `symphonia-libopus`.
+
+---
+
+## 12. WP-1 gate: `music` does **not** cross-compile for Android, and it is `rquickjs-sys`
+
+The gate in §1h asked whether the unmodified vendored `music` crate cross-compiles for
+`aarch64-linux-android`, `armv7-linux-androideabi` and `x86_64-linux-android` with NDK r27c.
+**It does not.** All three ABIs fail identically, in the same crate, with the same error.
+
+```
+error: couldn't read .../rquickjs-sys-0.12.2/src/bindings/aarch64-linux-android.rs: No such file or directory
+  --> rquickjs-sys-0.12.2/src/lib.rs:19:1
+   |  include!(concat!("bindings/", bindings_env!("TARGET"), ".rs"));
+warning: rquickjs-sys@0.12.2: rquickjs probably doesn't ship bindings for platform
+         `aarch64-linux-android(n/a)`. try the `bindgen` feature instead.
+error: could not compile `rquickjs-sys` (lib) due to 1 previous error
+```
+
+The same message appears for `armv7-linux-androideabi` and `x86_64-linux-android`. Verified
+by three consecutive runs on the WP-1 gate workflow (runs `44754714510`, `44755335634`,
+`44755962367`), after two harness bugs of my own were fixed: the first run never reached
+compilation (wrong working directory), and the second discarded the error text because
+GitHub keeps only one annotation per title.
+
+### What this changes about §1c's prediction
+
+§1c named `aws-lc-sys` (C/CMake) as "the most likely Android build failure in the whole
+graph". **That was wrong.** In the failing runs `aws-lc-rs` was *compiling* when the build
+aborted (`Compiling aws-lc-rs v1.19.0`, `Compiling opusic-sys v0.7.7`), and `ring` produced
+artifacts. Cargo stops the whole build on the first hard error, so `aws-lc-sys`,
+`libsqlite3-sys` and `opusic-sys` never got to finish — meaning **their Android
+buildability is still untested**, not that they failed. The one thing this gate does
+establish is that the blocker is not C or CMake at all. It is a missing pregenerated
+binding file in a Rust crate.
+
+### Why `rquickjs-sys` is in the graph, and why it cannot simply be dropped
+
+It arrives via `ytmusic 0.1.0 → rquickjs-core 0.12.2 → rquickjs-sys 0.12.2`. `ytmusic` uses
+QuickJS to execute YouTube's player JavaScript when minting a PoToken. So unlike the
+`librespot`, `opensubsonic` or `oauth2` dependencies:
+
+**`rquickjs` is a YouTube dependency, and YouTube is in scope for Release 1.** Trimming
+providers does not remove it.
+
+Three ways forward, none of them free:
+
+1. **Enable `rquickjs-sys`'s `bindgen` feature.** The crate's own warning recommends it. It
+   generates bindings for the target instead of `include!`-ing a file that does not exist.
+   Cost: needs `libclang` at build time in CI, adds a bindgen step per ABI, and ties the
+   build to the exact QuickJS C sources — but it is the upstream-supported path and requires
+   no source edit of ours.
+2. **Pre-generate the three binding files** and patch them in. Small and deterministic, but
+   it is a vendor patch of a file the crate expects to own, and it must be regenerated on
+   every `rquickjs` bump.
+3. **Replace `rquickjs` in `ytmusic`.** Either swap to a crate with Android bindings
+   (`boa`, `deno_core`, or a `wasmtime`-hosted JS) or move PoToken minting to Kotlin, which
+   §1e already argues for on other grounds because `webview` is a no-op on Android.
+
+Recommended: **option 1 first**, because it is the crate's own suggested remedy and needs no
+fork of `music` or `ytmusic`. If bindgen turns out to be painful for three ABIs, option 3 is
+the strategic answer given §1e's conclusion that Kotlin should own PoToken minting anyway.
+
+### Status of the gate
+
+- **Answered:** unmodified `music` does not build for Android; the blocker is `rquickjs-sys`
+  missing pregenerated bindings for all three targets.
+- **Not started:** the trim. This gate deliberately built the untrimmed crate, so nothing in
+  `rust/vendor/sonora` was edited and no provider was removed.
+- **Still open:** whether `aws-lc-sys`, `libsqlite3-sys` and `opusic-sys` build for Android.
+  They were never reached. Re-running the gate after the `rquickjs` fix will answer it.
