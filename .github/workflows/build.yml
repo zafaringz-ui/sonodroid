@@ -296,20 +296,38 @@ jobs:
       # Generated from the freshly built library, so the bindings always match the
       # code that ships. `--features cli` pulls in `uniffi_bindgen` at exactly the
       # crate's 0.28.3 version because it is the same dependency graph.
+      # Library mode requires the command to run inside the cargo workspace (it
+      # resolves the component through cargo_metadata) and reads the ELF with
+      # goblin, so the aarch64 build is fine on this x86_64 host.
       - name: Generate UniFFI Kotlin bindings from the built library
+        working-directory: rust
         run: |
           set -o pipefail
-          mkdir -p ci-logs
-          cargo run --manifest-path rust/Cargo.toml \
-            -p mobile-core --features cli --bin uniffi-bindgen -- \
-            generate \
-            --library android/core-bridge/src/main/jniLibs/arm64-v8a/libsonora_core.so \
-            --language kotlin \
-            --config rust/crates/mobile-core/uniffi.toml \
-            --out-dir android/core-bridge/src/generated 2>&1 | tee ci-logs/uniffi-bindgen.log
+          so=../android/core-bridge/src/main/jniLibs/arm64-v8a/libsonora_core.so
+          out=../android/core-bridge/src/generated
+          mkdir -p ../ci-logs
+          if cargo run -p mobile-core --features cli --bin uniffi-bindgen -- \
+              generate \
+              --library "$so" \
+              --language kotlin \
+              --config crates/mobile-core/uniffi.toml \
+              --out-dir "$out" 2>&1 | tee ../ci-logs/uniffi-bindgen.log; then
+            status=0
+          else
+            status=${PIPESTATUS[0]}
+            if [ "$status" -eq 0 ]; then status=1; fi
+          fi
+          # Printed on every outcome: the artifact download is unreliable, so the
+          # failure text has to reach the step conclusion itself.
+          echo "===== uniffi-bindgen output (tail) ====="
+          tail -n 40 ../ci-logs/uniffi-bindgen.log || true
+          if [ "$status" -ne 0 ]; then
+            echo "::error::uniffi-bindgen generate failed with status $status"
+            exit "$status"
+          fi
           echo
           echo "Generated files:"
-          find android/core-bridge/src/generated -name '*.kt' -exec wc -l {} \;
+          find "$out" -name '*.kt' -exec wc -l {} \;
 
       - name: Verify the adapter's expected class is present in the bindings
         run: |
