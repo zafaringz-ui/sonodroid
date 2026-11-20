@@ -1,21 +1,25 @@
 # WP-1 experiment, NOT the fix. Four questions, answered by building the real thing:
-#   A. Does `rquickjs-sys`'s `bindgen` feature plus a per-target clang `--target` actually
-#      compile `rquickjs-sys`, and therefore `music`, for the three Android ABIs?
+#   A. Does `rquickjs-sys`'s `bindgen` feature plus a per-target clang `--target` compile
+#      `rquickjs-sys`, and therefore `music`, for the three Android ABIs?
 #   B. Whose bindgen environment is right? cargo-ndk exports
 #      `BINDGEN_EXTRA_CLANG_ARGS_<triple>` as `--sysroot=... -I...` with NO `--target=`,
-#      in every released version (v3.5.4 through v4.1.2; the fix, commit ee7329a, is on
+#      in every released version (3.5.4 through 4.1.2; the fix, commit ee7329a, is on
 #      master only). Without `--target`, bindgen binds the HOST layout: for armv7 that
-#      means 64-bit `size_t` and the 64-bit `JSValue` union, which is silently wrong.
-#      This workflow builds armv7 twice — once with cargo-ndk's args, once with a
-#      `--target=` added — and prints the generated shapes so the difference is visible.
+#      means 64-bit `size_t` and the 64-bit `JSValue` union, while the C code compiles
+#      32-bit. This workflow builds armv7 twice - once with cargo-ndk's arguments, once
+#      with a `--target=` added - and prints both layouts, so the difference is measured
+#      rather than argued.
 #   C. Do the generated bindings differ per ABI, or can one layout serve all three?
-#   D. Does the build reach aws-lc-sys / libsqlite3-sys / opusic-sys, which the first
-#      WP-1 gate never got to because cargo stops at the first hard error?
+#   D. Does the build reach aws-lc-sys / libsqlite3-sys / opusic-sys, which the first WP-1
+#      gate never got to because cargo stops at the first hard error?
 #
-# Nothing in `rust/` is edited. The `rquickjs-sys` whose build.rs is patched is the copy
-# cargo extracted into the registry from crates.io; the `bindgen` feature is enabled from
-# the command line. `--locked` is exercised first precisely to record that it fails, i.e.
-# that this fix cannot land without a lockfile change.
+# Nothing under `rust/` is edited. The crate this workflow patches is the copy cargo
+# extracted into the registry from crates.io (scripts/wp1-probe-rquickjs.py), and the
+# feature is turned on in that copy's manifest rather than on the command line, because
+# `--features rquickjs-sys/bindgen` is rejected outright: run 44762272947 measured
+# "the package 'music' does not contain this feature". That is also why the real fix
+# needs a `[patch.crates-io]` copy of the crate plus a lockfile update, and the
+# `--locked` step below records the lockfile half of that.
 #
 # Everything is reported through annotations: job logs and artifacts cannot be read back
 # from the authoring environment, so anything that is not an annotation is lost.
@@ -36,8 +40,8 @@ env:
   CARGO_NDK_VERSION: "3.5.4"
   # One API level for every ABI, so the clang target below is reproducible by hand.
   ANDROID_API: "21"
-  # Be explicit about how git dependencies resolve: cargo-ndk replaces CC/CFLAGS/AR and
-  # also unsets the credential helper for subprocesses, so libgit2 cannot authenticate.
+  # Git dependencies are fetched by libgit2 during a cargo run; cargo-ndk replaces
+  # CC/CFLAGS/AR and unsets the credential helper for child processes. Be explicit.
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 jobs:
@@ -87,30 +91,41 @@ jobs:
           ls -d "$HOME"/.cargo/registry/src/*/rquickjs-sys-0.12.2 > /tmp/rqjs-dir || true
           echo "::notice title=probe-rqjs-dir::$(cat /tmp/rqjs-dir 2>/dev/null || echo MISSING)"
 
-      # A: recorded, expected to fail. If it passes, the fix needs no lockfile change at all.
-      - name: "Q1 with --locked (expected: lockfile needs updating)"
+      - name: Patch the registry copy of rquickjs-sys (probe only)
+        run: |
+          set -euo pipefail
+          d=$(cat /tmp/rqjs-dir 2>/dev/null || true)
+          [ -n "$d" ] || { echo "::error title=probe-patch::registry copy not found"; exit 0; }
+          chmod -R u+w "$d"
+          if python3 scripts/wp1-probe-rquickjs.py "$d"; then
+            echo "::notice title=probe-patch::patched $(basename "$d")"
+          else
+            echo "::error title=probe-patch::anchor not found — rquickjs-sys layout changed"
+          fi
+          echo "::notice title=probe-quickjs-src::$(ls "$d/quickjs" 2>/dev/null | head -n 6 | tr '\n' ' ')"
+          grep -n '^default' "$d/Cargo.toml" || true
+
+      # Records the lockfile half of the fix: with the feature on, bindgen 0.72 and
+      # clang-sys are not in Cargo.lock, so --locked cannot pass. Expected to fail.
+      - name: "Q1 --locked with the feature on (expected: lockfile must change)"
         working-directory: rust
         run: |
           set -o pipefail
-          if cargo ndk -t arm64-v8a -p "$ANDROID_API" check \
-               --features rquickjs-sys/bindgen -p music --locked > /tmp/locked.log 2>&1; then
+          if cargo ndk -t arm64-v8a -p "$ANDROID_API" check -p music --locked > /tmp/locked.log 2>&1; then
             echo "::notice title=probe-locked::PASSED — bindgen deps are already in Cargo.lock"
           else
-            body=$(grep -E '^(error|help|  )' /tmp/locked.log | head -n 12 | tr '\n' '%0A' | head -c 4000)
-            echo "::error title=probe-locked::FAILED as expected ::$body"
+            echo "::error title=probe-locked::FAILED as expected"
           fi
-          echo "::notice title=probe-locked-tail::$(tail -n 12 /tmp/locked.log | tr '\n' '%0A' | head -c 4000)"
+          echo "::notice title=probe-locked-tail::$(tail -n 14 /tmp/locked.log | tr '\n' '%0A' | head -c 4000)"
 
-      # Record exactly which packages the feature pulls in. This must actually compile:
-      # the bindgen deps have to be *built* for the host, which is where libclang is used.
-      - name: "Q2 what the bindgen feature adds to the graph"
+      # Record exactly which packages the feature adds, by resolving without --locked.
+      - name: "Q2 which packages the bindgen feature adds"
         working-directory: rust
         run: |
           set -o pipefail
           cp Cargo.lock /tmp/Cargo.lock.before
-          if cargo ndk -t arm64-v8a -p "$ANDROID_API" check \
-               --features rquickjs-sys/bindgen -p music > /tmp/resolve.log 2>&1; then
-            echo "::notice title=probe-resolve::compiled (aarch64, bindgen feature, no --locked)"
+          if cargo ndk -t arm64-v8a -p "$ANDROID_API" check -p music > /tmp/resolve.log 2>&1; then
+            echo "::notice title=probe-resolve::compiled music for aarch64 with bindgen bindings"
           else
             echo "::error title=probe-resolve::FAILED — see probe-resolve-tail"
           fi
@@ -118,25 +133,8 @@ jobs:
                   | grep '^>' | sed 's/^> name = //' | tr -d '"' | sort -u | tr '\n' ' ')
           echo "::notice title=probe-lock-added::${added:-none}"
           echo "::notice title=probe-lock-diffstat::$(git diff --stat Cargo.lock | tr '\n' ' ')"
-          tail=$(grep -E '^(error|warning: rquickjs|PROBE_TARGET)' /tmp/resolve.log | head -n 25 | tr '\n' '%0A' | head -c 6000)
-          echo "::notice title=probe-resolve-notes::$tail"
+          echo "::notice title=probe-resolve-notes::$(grep -E '(PROBE_TARGET|^error|warning: rquickjs)' /tmp/resolve.log | head -n 25 | tr '\n' '%0A' | head -c 6000)"
           echo "::notice title=probe-resolve-tail::$(tail -n 20 /tmp/resolve.log | tr '\n' '%0A' | head -c 6000)"
-          # Leave the lockfile dirty for the rest of the job (that mirrors the real fix) but
-          # say so, so nobody thinks it was left dirty by accident.
-          echo "::notice title=probe-lock-state::Cargo.lock left resolved for the builds below; repo state is unchanged"
-
-      - name: Patch the registry copy of rquickjs-sys (probe only)
-        run: |
-          set -euo pipefail
-          d=$(cat /tmp/rqjs-dir 2>/dev/null || true)
-          [ -n "$d" ] || { echo "::error title=probe-patch::registry copy not found"; exit 0; }
-          chmod -R u+w "$d"
-          if python3 scripts/wp1-probe-rquickjs.py "$d/build.rs"; then
-            echo "::notice title=probe-patch::patched $(basename "$d")"
-          else
-            echo "::error title=probe-patch::anchor not found — rquickjs-sys build.rs changed"
-          fi
-          echo "::notice title=probe-quickjs-src::$(ls "$d/quickjs" 2>/dev/null | head -n 6 | tr '\n' ' ')"
 
       # The per-ABI clang arguments the fix needs, spelled out. `--target` is the part
       # cargo-ndk leaves out; `--sysroot` and the arch include dir are what it does pass.
@@ -150,10 +148,10 @@ jobs:
             echo "BINDGEN_ARGS_x86_64=--target=x86_64-linux-android${ANDROID_API} --sysroot=${sysroot} -I${sysroot}/usr/include/x86_64-linux-android"
             echo "BINDGEN_ARGS_armv7_notarget=--sysroot=${sysroot} -I${sysroot}/usr/include/arm-linux-androideabi"
           } >> "$GITHUB_ENV"
-          cat "$GITHUB_ENV" | grep BINDGEN_ARGS
+          grep BINDGEN_ARGS "$GITHUB_ENV" | sed 's/^/::notice title=probe-args::/'
 
-      # One ABI per step so a failure names its own ABI. `PROBE_HOST_BINDGEN` disables the
-      # crate's host-vs-target clamp in the patched build.rs; the dump goes to /tmp/probe.
+      # One ABI per step so a failure names its own ABI. PROBE_HOST_BINDGEN disables the
+      # crate's host-vs-target clamp in the patched build.rs; dumps land in /tmp/probe.
       - name: "music via bindgen (aarch64-linux-android)"
         working-directory: rust
         env:
@@ -162,8 +160,7 @@ jobs:
           BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android: ${{ env.BINDGEN_ARGS_arm64 }}
         run: |
           set -o pipefail
-          if cargo ndk -t arm64-v8a -p "$ANDROID_API" check --features rquickjs-sys/bindgen -p music \
-               > /tmp/aarch64.log 2>&1; then
+          if cargo ndk -t arm64-v8a -p "$ANDROID_API" check -p music > /tmp/aarch64.log 2>&1; then
             echo "::notice title=probe-aarch64::PASS"
           else
             echo "::error title=probe-aarch64::FAIL"
@@ -179,8 +176,7 @@ jobs:
           BINDGEN_EXTRA_CLANG_ARGS_x86_64_linux_android: ${{ env.BINDGEN_ARGS_x86_64 }}
         run: |
           set -o pipefail
-          if cargo ndk -t x86_64 -p "$ANDROID_API" check --features rquickjs-sys/bindgen -p music \
-               > /tmp/x86_64.log 2>&1; then
+          if cargo ndk -t x86_64 -p "$ANDROID_API" check -p music > /tmp/x86_64.log 2>&1; then
             echo "::notice title=probe-x86_64::PASS"
           else
             echo "::error title=probe-x86_64::FAIL"
@@ -196,8 +192,7 @@ jobs:
           BINDGEN_EXTRA_CLANG_ARGS_armv7_linux_androideabi: ${{ env.BINDGEN_ARGS_armv7 }}
         run: |
           set -o pipefail
-          if cargo ndk -t armeabi-v7a -p "$ANDROID_API" check --features rquickjs-sys/bindgen -p music \
-               > /tmp/armv7.log 2>&1; then
+          if cargo ndk -t armeabi-v7a -p "$ANDROID_API" check -p music > /tmp/armv7.log 2>&1; then
             echo "::notice title=probe-armv7::PASS (with --target)"
           else
             echo "::error title=probe-armv7::FAIL (with --target)"
@@ -206,7 +201,7 @@ jobs:
           echo "::error title=probe-armv7-tail::$(tail -n 20 /tmp/armv7.log | tr '\n' '%0A' | head -c 6000)"
 
       # The landmine, isolated: same crate, same target, cargo-ndk's own arguments (no
-      # `--target`). It compiles — and produces 64-bit layouts for a 32-bit ABI.
+      # --target). It compiles - and binds the 64-bit layout for a 32-bit ABI.
       - name: "rquickjs-sys alone (armv7, NO --target — cargo-ndk's own args)"
         working-directory: rust
         env:
@@ -215,8 +210,7 @@ jobs:
           BINDGEN_EXTRA_CLANG_ARGS_armv7_linux_androideabi: ${{ env.BINDGEN_ARGS_armv7_notarget }}
         run: |
           set -o pipefail
-          if cargo ndk -t armeabi-v7a -p "$ANDROID_API" check --features bindgen -p rquickjs-sys \
-               > /tmp/armv7-notarget.log 2>&1; then
+          if cargo ndk -t armeabi-v7a -p "$ANDROID_API" check -p rquickjs-sys > /tmp/armv7-notarget.log 2>&1; then
             echo "::notice title=probe-armv7-notarget::compiled"
           else
             echo "::error title=probe-armv7-notarget::FAILED"
