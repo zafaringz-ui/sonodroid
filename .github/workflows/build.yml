@@ -507,7 +507,14 @@ jobs:
           set -o pipefail
           mkdir -p ci-logs
           rm -rf android/app/build/outputs/apk/debug
-          gradle :app:assembleDebug --console=plain 2>&1 | tee ci-logs/gradle-default-assemble.log | tail -n 25
+          if gradle :app:assembleDebug --console=plain 2>&1 | tee ci-logs/gradle-default-assemble.log | tail -n 25; then
+            echo "Default build succeeded."
+          else
+            echo "Default build failed. Errors:"
+            grep -E "^e: |error:|What went wrong|Execution failed" ci-logs/gradle-default-assemble.log | grep -v '^> Task' | head -n 12 || true
+            echo "::error::Default build failed with generated bindings present"
+            exit 1
+          fi
           demo=$(find android/app/build/outputs/apk/debug -name '*.apk' | head -n 1)
           if [ -z "$demo" ]; then
             echo "::error::No APK from the default build"
