@@ -21,6 +21,13 @@ if ! command -v cargo-ndk >/dev/null 2>&1; then
 fi
 
 cd "$rust_dir"
+
+# cargo-ndk 3.x requires the Rust targets to be installed up front.
+rustup target add \
+  aarch64-linux-android \
+  armv7-linux-androideabi \
+  x86_64-linux-android
+
 cargo ndk \
   --target arm64-v8a \
   --target armeabi-v7a \

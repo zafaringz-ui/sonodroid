@@ -7,11 +7,16 @@ activityCompose = "1.9.3"
 composeBom = "2024.12.01"
 navigation = "2.8.5"
 media3 = "1.5.0"
+# UniFFI 0.28.3 Kotlin bindings require >= 1.6; 1.9.0 satisfies that.
 coroutines = "1.9.0"
 serialization = "1.7.3"
 coil = "3.0.4"
 palette = "1.0.0"
 webkit = "1.12.1"
+# UniFFI's generated Cleaner falls back to JNA below API 34; 5.12.0 is the floor.
+jna = "5.14.0"
+# Needed for java.lang.ref.Cleaner (API 33+) when minSdk is lower.
+desugarJdkLibs = "2.1.5"
 junit = "4.13.2"
 androidxJunit = "1.2.1"
 espresso = "3.6.1"
@@ -49,6 +54,8 @@ coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref 
 androidx-palette = { group = "androidx.palette", name = "palette-ktx", version.ref = "palette" }
 androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
 
+jna = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
+desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxJunit" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }

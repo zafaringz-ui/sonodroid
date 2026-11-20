@@ -21,6 +21,22 @@ async-trait = "0.1"
 tokio = { version = "1.42", features = ["rt-multi-thread", "time", "sync"] }
 
 # Release profile from the plan: small, fast, no panic unwinding across the FFI.
+#
+# `panic = "abort"` interacts with UniFFI and is deliberately kept:
+#  * UniFFI 0.28.3 catches panics in `uniffi_core::ffi::rustcalls::rust_call_*`
+#    via `std::panic::catch_unwind` and reports them to Kotlin as
+#    `UnexpectedError` with the panic message. With `panic = "abort"` there is
+#    nothing to catch, so a panic aborts the process instead of surfacing as a
+#    Kotlin exception. That is acceptable for the current core, which has no
+#    `unwrap`/index panics on the FFI path, and it keeps the binary small.
+#  * If the core later performs fallible work that can panic (parsing untrusted
+#    provider JSON, slice indexing on network data), remove this line: unwinding
+#    is required for UniFFI to turn a panic into a Kotlin exception rather than a
+#    crash. `-Cpanic=abort` also makes `catch_unwind` a no-op, so this is not
+#    something the bindings can compensate for.
+#  * `strip = "symbols"` is compatible with UniFFI: the checksums and metadata the
+#    bindings need live in exported symbols and `uniffi_*` metadata sections, not
+#    in the debug symbol table.
 [profile.release]
 lto = "fat"
 codegen-units = 1

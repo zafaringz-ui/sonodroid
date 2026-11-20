@@ -6,6 +6,8 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
+val rustBinding: Boolean = providers.gradleProperty("sonora.rust").orNull == "true"
+
 android {
     namespace = "dev.sonora.core"
     compileSdk = 35
@@ -17,6 +19,10 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // UniFFI's generated object Cleaner uses java.lang.ref.Cleaner, which is
+        // API 33+. Desugaring is only needed when the generated bindings are
+        // compiled in (minSdk is 26), so the demo build keeps its old behaviour.
+        isCoreLibraryDesugaringEnabled = rustBinding
     }
     kotlinOptions {
         jvmTarget = "17"
@@ -26,7 +32,7 @@ android {
     // by scripts/build-rust.sh (jniLibs/<abi>/libsonora_core.so).
     sourceSets["main"].java.srcDir("src/generated/kotlin")
     sourceSets["main"].jniLibs.srcDir("src/main/jniLibs")
-    if (providers.gradleProperty("sonora.rust").orNull == "true") {
+    if (rustBinding) {
         sourceSets["main"].kotlin.srcDir("src/rust/kotlin")
     }
 }
@@ -34,6 +40,13 @@ android {
 dependencies {
     api(libs.kotlinx.coroutines.core)
     api(libs.kotlinx.coroutines.android)
+
+    // Only the native build carries generated UniFFI Kotlin. JNA backs UniFFI's
+    // cleaner below API 34; desugar_jdk_libs provides java.lang.ref.Cleaner on API 26+.
+    if (rustBinding) {
+        implementation(libs.jna)
+        coreLibraryDesugaring(libs.desugar.jdk.libs)
+    }
 
     testImplementation(libs.junit)
     testImplementation(libs.turbine)

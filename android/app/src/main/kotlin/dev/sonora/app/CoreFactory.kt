@@ -142,6 +142,6 @@ class CoreFactory(
          * both together: this constant only labels the badge, it does not configure
          * the core.
          */
-        const val ADAPTER_USES_FIXTURES = false
+        const val ADAPTER_USES_FIXTURES = true
     }
 }

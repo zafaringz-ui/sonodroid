@@ -27,5 +27,11 @@ Thumbs.db
 .vscode/
 *.swp
 
-# Generated UniFFI bindings are re-created by scripts/gen-bindings.sh
+# Generated UniFFI bindings are re-created by scripts/gen-bindings.sh and by the
+# `Android native` CI job from the compiled library. Never committed: they are a
+# build output, and a stale copy would silently disagree with the .so.
 android/core-bridge/src/generated/
+
+# Cross-compiled shared objects, produced by scripts/build-rust.sh or CI.
+# A committed .so would be a stale binary and a large blob in history.
+android/core-bridge/src/main/jniLibs/
