@@ -359,6 +359,14 @@ jobs:
           find "$root" -name '*.kt' -exec wc -l {} +
           f=$(find "$root" -name '*.kt' -path '*dev/sonora/core/ffi/*' -print -quit)
           if [ -z "$f" ]; then
+            echo "===== bindgen log (tail, mirrored to annotations) ====="
+            n=0
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              n=$((n + 1))
+              [ "$n" -gt 12 ] && break
+              echo "::error::bindgen-tail: $line"
+            done < <(tail -n 12 ../ci-logs/uniffi-bindgen.log 2>/dev/null || true)
             echo "Generated tree (full):"
             find "$root" -type f 2>/dev/null | head -n 40
             echo "any .kt anywhere in the workspace:"
