@@ -124,7 +124,7 @@ jobs:
         run: |
           for pair in "aws-lc-sys:aws_lc_sys" "ring:ring" "libsqlite3-sys:libsqlite3_sys" "opusic-sys:opusic_sys" "rquickjs-sys:rquickjs_sys"; do
             name=${pair%%:*}; dir=${pair##*:}
-            hit=$(find rust/target -maxdepth 4 -type d -name "*${dir}*" 2>/dev/null | head -n 1)
+            hit=$(find rust/target -type d -name "${dir}-*" 2>/dev/null | head -n 1)
             if [ -n "$hit" ]; then echo "::notice title=wp1-built::${name}: artifacts present"
             else echo "::notice title=wp1-built::${name}: NO artifacts"; fi
           done || true
