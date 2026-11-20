@@ -371,6 +371,9 @@ jobs:
             fi
             exit 1
           fi
+          if ! grep -q "uniffi_sonora_core_checksum_method" "$f" 2>/dev/null; then
+            echo "::warning::Bindings have no contract checksum symbols; library and bindings may have diverged"
+          fi
           echo "Bindings file: $f"
           echo "package line:  $(grep -m1 '^package ' "$f")"
           rc=0
