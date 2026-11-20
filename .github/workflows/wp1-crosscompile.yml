@@ -1,0 +1,140 @@
+# WP-1 gate. Answers one question and nothing else:
+#   does the UNMODIFIED vendored `music` crate cross-compile for the three Android ABIs?
+# It does not trim, patch or exclude anything. A failure is the recorded result.
+#
+# Results come out as annotations because job logs cannot be read from the authoring
+# environment. Every step is `|| true` and the job never fails on a compile error; the
+# gate verdict is in the `wp1-verdict` annotation.
+name: wp1-crosscompile
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["wp-1-android-crosscompile"]
+
+permissions:
+  contents: read
+
+env:
+  NDK_REVISION: "27.2.12479018"
+  NDK_URL: "https://dl.google.com/android/repository/android-ndk-r27c-linux.zip"
+  NDK_SHA256: "59c2f6dc96743b5daf5d1626684640b20a6bd2b1d85b13156b90333741bad5cc"
+  CARGO_NDK_VERSION: "3.5.4"
+
+jobs:
+  crosscompile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust targets for Android
+        run: |
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android || true
+          rustup target list --installed | grep android || true
+
+      - name: Install Android NDK r27c
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ndk"
+          archive="$RUNNER_TEMP/ndk/android-ndk-r27c-linux.zip"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$archive" "$NDK_URL"
+          echo "${NDK_SHA256}  ${archive}" | sha256sum -c -
+          unzip -q "$archive" -d "$RUNNER_TEMP/ndk"
+          ndk_path="$RUNNER_TEMP/ndk/android-ndk-r27c"
+          actual=$(sed -n 's/^Pkg\.Revision *= *//p' "$ndk_path/source.properties")
+          echo "::notice title=ndk::Pkg.Revision=$actual"
+          [ "$actual" = "$NDK_REVISION" ] || { echo "::error title=ndk::revision mismatch"; exit 1; }
+          echo "ANDROID_NDK_HOME=$ndk_path" >> "$GITHUB_ENV"
+          echo "NDK=$ndk_path" >> "$GITHUB_ENV"
+
+      # Host tools the -sys crates invoke. cmake+nasm are what aws-lc-sys and ring want;
+      # clang/libclang is for bindgen. None of these are Android-side deps.
+      - name: Install host build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake nasm clang libclang-dev pkg-config perl golang-go || true
+          echo "::notice title=apt::cmake nasm clang libclang-dev pkg-config perl golang-go"
+
+      - name: Install cargo-ndk
+        run: |
+          cargo install cargo-ndk --version "$CARGO_NDK_VERSION" --locked || true
+          cargo ndk --version || true
+
+      # Per ABI, one at a time, so a failure names its own ABI.
+      - name: "cargo ndk check -p music (aarch64)"
+        working-directory: rust
+        run: |
+          set -o pipefail
+          if cargo ndk -t arm64-v8a check -p music --locked 2>&1 | tee /tmp/w1-aarch64.log | tail -n 5; then
+            echo "::notice title=wp1-aarch64::PASS"
+          else
+            echo "::notice title=wp1-aarch64::FAIL"
+            echo "aarch64_failed=1" >> "$GITHUB_ENV"
+          fi
+          # Only one annotation survives per title, so everything goes in one message.
+          body=$(tail -n 25 /tmp/w1-aarch64.log | tr '\n' '%0A' | head -c 6000)
+          echo "::error title=wp1-aarch64-tail::$body"
+          grep -E '^(error|error\[|  = note|  caused by|Caused by|note:)' /tmp/w1-aarch64.log | head -n 25 | while IFS= read -r l; do
+            echo "::error title=wp1-aarch64::$l"
+          done || true
+          grep -oE '(vendor/sonora/crates/[a-z]+|crates/mobile-core|the following [0-9]+ packages)' /tmp/w1-aarch64.log \
+            | sort | uniq -c | sort -rn | head -n 8 | while IFS= read -r l; do
+            echo "::error title=wp1-aarch64-crate::$l"
+          done || true
+
+      - name: "cargo ndk check -p music (armv7)"
+        working-directory: rust
+        run: |
+          set -o pipefail
+          if cargo ndk -t armeabi-v7a check -p music --locked 2>&1 | tee /tmp/w1-armv7.log | tail -n 5; then
+            echo "::notice title=wp1-armv7::PASS"
+          else
+            echo "::notice title=wp1-armv7::FAIL"
+            echo "armv7_failed=1" >> "$GITHUB_ENV"
+          fi
+          body=$(tail -n 25 /tmp/w1-armv7.log | tr '\n' '%0A' | head -c 6000)
+          echo "::error title=wp1-armv7-tail::$body"
+          grep -E '^(error|error\[|  = note|  caused by|Caused by|note:)' /tmp/w1-armv7.log | head -n 25 | while IFS= read -r l; do
+            echo "::error title=wp1-armv7::$l"
+          done || true
+
+      - name: "cargo ndk check -p music (x86_64)"
+        working-directory: rust
+        run: |
+          set -o pipefail
+          if cargo ndk -t x86_64 check -p music --locked 2>&1 | tee /tmp/w1-x86_64.log | tail -n 5; then
+            echo "::notice title=wp1-x86_64::PASS"
+          else
+            echo "::notice title=wp1-x86_64::FAIL"
+            echo "x86_64_failed=1" >> "$GITHUB_ENV"
+          fi
+          body=$(tail -n 25 /tmp/w1-x86_64.log | tr '\n' '%0A' | head -c 6000)
+          echo "::error title=wp1-x86_64-tail::$body"
+          grep -E '^(error|error\[|  = note|  caused by|Caused by|note:)' /tmp/w1-x86_64.log | head -n 25 | while IFS= read -r l; do
+            echo "::error title=wp1-x86_64::$l"
+          done || true
+
+      # Which C/asm crates actually built. This is the §1c question answered directly
+      # rather than inferred: did aws-lc-sys, ring and libsqlite3-sys produce artifacts?
+      - name: Which native crates built
+        if: always()
+        run: |
+          for pair in "aws-lc-sys:aws_lc_sys" "ring:ring" "libsqlite3-sys:libsqlite3_sys" "opusic-sys:opusic_sys" "rquickjs-sys:rquickjs_sys"; do
+            name=${pair%%:*}; dir=${pair##*:}
+            hit=$(find rust/target -type d -name "${dir}-*" 2>/dev/null | head -n 1)
+            if [ -n "$hit" ]; then echo "::notice title=wp1-built::${name}: artifacts present"
+            else echo "::notice title=wp1-built::${name}: NO artifacts"; fi
+          done || true
+
+      - name: Verdict
+        if: always()
+        run: |
+          a="${aarch64_failed:-0}"; b="${armv7_failed:-0}"; c="${x86_64_failed:-0}"
+          if [ "$a" = 0 ] && [ "$b" = 0 ] && [ "$c" = 0 ]; then
+            echo "::notice title=wp1-verdict::UNMODIFIED music CROSS-COMPILES for aarch64, armv7 and x86_64"
+          else
+            echo "::error title=wp1-verdict::FAILED. aarch64=$a armv7=$b x86_64=$c — see per-ABI annotations"
+          fi
