@@ -222,17 +222,37 @@ jobs:
         with:
           ndk-version: ${{ env.NDK_TAG }}
           add-to-path: "true"
+      # The action's `ndk-path` output was observed to arrive empty on this runner
+      # (and setup-ndk itself only warns when source.properties is unreadable), so
+      # resolve the path defensively and fail on a missing file rather than on an
+      # empty variable.
       - name: Export ANDROID_NDK_HOME
         env:
-          NDK_PATH: ${{ steps.setup-ndk.outputs.ndk-path }}
+          NDK_OUTPUT: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
-          echo "ANDROID_NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
-          actual=$(sed -n 's/^Pkg\\.Revision *= *//p' "$NDK_PATH/source.properties")
-          echo "NDK revision on disk: $actual"
+          set -euo pipefail
+          echo "setup-ndk reported ndk-path='${NDK_OUTPUT}'"
+          ndk_path="${NDK_OUTPUT}"
+          if [ -z "$ndk_path" ] || [ ! -f "$ndk_path/source.properties" ]; then
+            echo "Falling back to a search of the runner tool cache."
+            cache_root="${RUNNER_TOOL_CACHE:-/opt/hostedtoolcache}"
+            props=$(find "$cache_root/ndk" -maxdepth 3 -name source.properties -print -quit 2>/dev/null || true)
+            if [ -z "$props" ]; then
+              echo "::error::Could not locate source.properties under $cache_root/ndk"
+              ls -la "$cache_root/ndk" 2>/dev/null || true
+              exit 1
+            fi
+            ndk_path=$(dirname "$props")
+          fi
+          echo "NDK root: $ndk_path"
+          ls "$ndk_path" | head -n 20
+          actual=$(sed -n 's/^Pkg\.Revision *= *//p' "$ndk_path/source.properties")
+          echo "NDK revision on disk: '$actual'"
           if [ "$actual" != "$NDK_REVISION" ]; then
-            echo "::error::Expected NDK $NDK_REVISION, found $actual"
+            echo "::error::Expected NDK $NDK_REVISION, found '$actual'"
             exit 1
           fi
+          echo "ANDROID_NDK_HOME=$ndk_path" >> "$GITHUB_ENV"
 
       # `--locked` here pins cargo-ndk itself; it is unrelated to the project lockfile.
       - name: Install cargo-ndk
