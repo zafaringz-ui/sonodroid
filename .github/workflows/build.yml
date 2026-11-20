@@ -301,6 +301,10 @@ jobs:
         run: |
           set -euo pipefail
           so=android/core-bridge/src/main/jniLibs/arm64-v8a/libsonora_core.so
+          echo "---- static symtab, first 15 uniffi-ish rows ----"
+          readelf -sW "$so" | grep -i 'uniffi\|\.symtab' | head -n 15 || echo "(no matches)"
+          echo "---- section headers ----"
+          readelf -SW "$so" | grep -E 'symtab|dynsym|uniffi' || true
           echo "static symtab uniffi symbols: $(readelf -sW "$so" | grep -c 'uniffi_' || true)"
           echo "dynamic symtab uniffi symbols: $(readelf -sW --dyn-syms "$so" | grep -c 'uniffi_' || true)"
           echo "checksum symbols in static symtab:"
