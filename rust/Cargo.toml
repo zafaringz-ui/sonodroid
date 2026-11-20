@@ -34,22 +34,24 @@ tokio = { version = "1.42", features = ["rt-multi-thread", "time", "sync"] }
 #    is required for UniFFI to turn a panic into a Kotlin exception rather than a
 #    crash. `-Cpanic=abort` also makes `catch_unwind` a no-op, so this is not
 #    something the bindings can compensate for.
-#  * `strip = "symbols"` is kept as the plan specifies. It is safe here, but only
-#    because UniFFI library mode needs the `uniffi_*` metadata from the ELF
-#    **static** symbol table (`elf.syms` in
-#    `uniffi_bindgen::macro_metadata::extract` -> `extract_from_elf`). Two things
-#    must therefore be true at bindgen time:
-#      1. the bindings must be generated from the cargo target directory output,
-#         not from a copy that `cargo ndk` post-processed — cargo-ndk 3.x runs an
-#         extra host `strip` on the files it copies into the jniLibs output
-#         directory, which removes the static table and makes the generator find
-#         zero components and write nothing (silently, exit code 0);
-#      2. the copy handed to the APK should also skip that strip, or the
-#         `uniffi_*` metadata disappears from the shipped library.
-#    `cargo ndk --no-strip` covers (2) and generating from target/ covers (1).
-#    (3) rustc itself also strips when this key is set, so the Android build in CI
-#    overrides it with CARGO_PROFILE_RELEASE_STRIP=none and pays ~0.5 MB per ABI
-#    for a library that still carries its metadata.
+#  * `strip = "symbols"` is NOT safe for the UniFFI build. UniFFI library mode reads
+#    its metadata from the ELF **static** symbol table (`elf.syms` in
+#    `uniffi_bindgen::macro_metadata::extract` -> `extract_from_elf`), and this key
+#    makes rustc pass `-Wl,--strip-all`, which deletes that table. When it is gone
+#    the generator finds zero components and writes no bindings **while exiting 0**.
+#    Two strip layers have to be defeated, and there are therefore two separate
+#    requirements for any Android build:
+#      1. override this key, because rustc strips the link itself:
+#         `CARGO_PROFILE_RELEASE_STRIP=none`;
+#      2. pass `--no-strip` to `cargo ndk`, because cargo-ndk 3.x runs its own host
+#         `strip` over the libraries it copies into the jniLibs output directory.
+#    Then generate the bindings from cargo's own output
+#    (`target/<triple>/release/libsonora_core.so`) rather than from the jniLibs copy.
+#    `.github/workflows/build.yml` (Android native job), `scripts/build-rust.sh` and
+#    `scripts/gen-bindings.sh` all do exactly this.
+#    The measured cost is about 1.5 MiB per ABI, which is why the shipped libraries
+#    measure 3.8-4.7 MB each instead of roughly half that; the APK size log in CI
+#    reports the exact numbers per ABI.
 [profile.release]
 lto = "fat"
 codegen-units = 1

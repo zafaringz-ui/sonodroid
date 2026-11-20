@@ -1,6 +1,7 @@
 package dev.sonora.core.rust
 
 import android.content.Context
+import android.util.Log
 import dev.sonora.core.SonoraCoreClient
 import dev.sonora.core.ffi.AccountStatus
 import dev.sonora.core.ffi.Album
@@ -78,9 +79,10 @@ import kotlinx.coroutines.launch
  *    backend renames any type used as an error by replacing a trailing `Error`
  *    with `Exception` (KotlinCodeOracle::convert_error_suffix), so the Kotlin
  *    name is not the Rust name;
- *  * async exports become `suspend fun` that throw `CoreError`. Kotlin does not
- *    enforce checked exceptions, but the ViewModels already wrap these calls in
- *    `runCatching`; `@Throws` is kept as documentation for the JVM signature.
+ *  * async exports become `suspend fun` that throw `CoreException`, the Kotlin name
+ *    of the Rust `CoreError` (see above). Kotlin does not enforce checked
+ *    exceptions, but the ViewModels already wrap these calls in `runCatching`;
+ *    `@Throws` is kept as documentation for the JVM signature.
  */
 class UniffiCoreClient(
     private val core: SonoraCore,
@@ -247,10 +249,13 @@ class UniffiCoreClient(
 
     override fun setShuffle(enabled: Boolean) = core.setShuffle(enabled)
 
-    // Rust returns false when either index is out of range; the client interface
-    // has no place to report that, so the boolean is deliberately ignored.
+    // Rust returns false when either index is out of range and makes no change. The
+    // client interface cannot express that (a rejected move is simply a no-op), so
+    // report it in the log instead of failing silently.
     override fun moveInQueue(from: Int, to: Int) {
-        core.moveInQueue(from, to)
+        if (!core.moveInQueue(from, to)) {
+            Log.w(TAG, "moveInQueue($from, $to) rejected: index out of range")
+        }
     }
 
     override fun removeFromQueue(index: Int) = core.removeFromQueue(index)
@@ -270,6 +275,7 @@ class UniffiCoreClient(
 
     companion object {
         private const val POSITION_TICK_MS = 500L
+        private const val TAG = "SonoraCore"
 
         /**
          * Entry point used by `AppGraph` through reflection, so the default build

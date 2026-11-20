@@ -188,6 +188,19 @@ jobs:
       # NDK r27c, pinned by exact revision and by archive URL.
       NDK_REVISION: "27.2.12479018"
       NDK_URL: "https://dl.google.com/android/repository/android-ndk-r27c-linux.zip"
+      # SHA-256 of that exact archive. Pkg.Revision alone does not authenticate the
+      # toolchain: a substituted archive can keep the revision string and still pass
+      # the check, and these tools build the APK we upload.
+      #
+      # Independently corroborated, and cross-checked against the SHA-1 Google's own
+      # repository2-3.xml publishes (090e8083a715fdb1a3e402d0763c388abb03fb4e,
+      # which the three sources below also list for this archive):
+      #   conan-io/conan-center-index  recipes/android-ndk/all/conandata.yml
+      #   liambilsbury/rhizo           tools/fetch/build-inputs.sh
+      #   ziyuw-Plank/Wireshark-for-Android  SOURCES.txt
+      #   Pocketward/pd2-launcher-android    containers/Containerfile
+      # If this ever needs bumping, change the version and this digest together.
+      NDK_SHA256: "59c2f6dc96743b5daf5d1626684640b20a6bd2b1d85b13156b90333741bad5cc"
       # 3.5.5-3.5.7 are yanked on crates.io and `cargo install` refuses yanked
       # versions, so 3.5.4 is the newest installable 3.x release.
       CARGO_NDK_VERSION: "3.5.4"
@@ -225,6 +238,8 @@ jobs:
           archive="$RUNNER_TEMP/ndk/android-ndk-r27c-linux.zip"
           echo "Downloading android-ndk-r27c-linux.zip (${NDK_URL})"
           curl -fsSL --retry 3 --retry-delay 5 -o "$archive" "$NDK_URL"
+          echo "${NDK_SHA256}  ${archive}" | sha256sum -c -
+          echo "Checksum verified before extraction."
           unzip -q "$archive" -d "$RUNNER_TEMP/ndk"
           echo "Extracted."
           ls "$RUNNER_TEMP/ndk"
@@ -505,6 +520,16 @@ jobs:
               echo "OK  lib/$abi/libsonora_core.so"
               entry=$(unzip -l "$apk" | grep "lib/$abi/libsonora_core.so" | awk '{print $1}')
               echo "::warning::packaged lib/$abi/libsonora_core.so = ${entry} bytes"
+
+              # UniFFI's generated Kotlin reaches the core through JNA, so the APK
+              # must also carry JNA's own native dispatcher. The plain net.java.dev
+              # .jna jar has no .so at all; only the @aar does.
+              if ! unzip -l "$apk" | grep -q "lib/$abi/libjnidispatch.so"; then
+                echo "::error::APK is missing lib/$abi/libjnidispatch.so; JNA cannot load and every core call would throw"
+                unzip -l "$apk" | grep 'lib/' || true
+                exit 1
+              fi
+              echo "OK  lib/$abi/libjnidispatch.so"
             done
             echo "::warning::APK total = $(stat -c%s "$apk") bytes"
           else
