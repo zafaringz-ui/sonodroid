@@ -7,6 +7,18 @@ implementation. A structural check is not a build or a test.
 
 ## Phase A
 
+- **Implemented, awaiting review — core selection is explicit:** `AppGraph` no
+  longer swallows a failed native-core load with `runCatching { }.getOrNull()`.
+  `CoreFactory` logs the exception class and message via `Log.e` and records a
+  `FallbackReason` (`FLAG_OFF`, `CLASS_MISSING`, `FACTORY_INCOMPATIBLE`,
+  `NATIVE_LOAD_FAILED`, `CORE_INIT_FAILED`). Debug builds show a persistent badge
+  reading "Demo core", "Rust core (fixtures)" or "Rust core (live)", plus the reason
+  when the app fell back. The decision table lives in `CoreSelectionPolicy` and is
+  covered by `android/app/src/test/.../CoreSelectionPolicyTest.kt`. Note that a
+  successful native load still serves fixtures until the provider clients exist:
+  `api.rs` `require_online()` returns `NotImplemented` unless `use_fixtures` is set,
+  so a correctly wired bridge will read "Rust core (fixtures)".
+
 - **Implemented but untested — reported errors from CI commit `a7b3f32`:** the
   ACTION_VIEW caller now converts its `Uri` to a string, and the `with_foreign`
   UniFFI traits now use `Arc<dyn Trait>` arguments as in the upstream UniFFI 0.28.3

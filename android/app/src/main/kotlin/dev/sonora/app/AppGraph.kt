@@ -2,7 +2,6 @@ package dev.sonora.app
 
 import android.content.Context
 import dev.sonora.core.SonoraCoreClient
-import dev.sonora.core.demo.DemoCoreClient
 import dev.sonora.playback.PlaybackDependencies
 import dev.sonora.secure.CredentialStore
 import dev.sonora.secure.SecretsVault
@@ -28,6 +27,14 @@ class AppGraph(context: Context) {
 
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    private val coreResult = CoreFactory(rustEnabled = BuildConfig.SONORA_RUST).createCore(
+        context = appContext,
+        scope = applicationScope,
+    )
+
+    /** Debug-only badge text and fallback reason; see [CoreSelection]. */
+    val coreSelection: CoreSelection = coreResult.selection
+
     /**
      * The core the UI talks to.
      *
@@ -36,21 +43,11 @@ class AppGraph(context: Context) {
      * on the classpath and constructed reflectively: the default build never has to
      * compile against generated types, and a missing `.so` degrades to demo mode
      * instead of crashing.
+     *
+     * Which of those happened is recorded in [coreSelection]; the debug build shows
+     * it so demo data can never be mistaken for the native core.
      */
-    val core: SonoraCoreClient = createCore()
-
-    private fun createCore(): SonoraCoreClient {
-        if (!BuildConfig.SONORA_RUST) return DemoCoreClient(applicationScope)
-        return runCatching {
-            val bridge = Class.forName("dev.sonora.core.rust.UniffiCoreClient")
-            val factory = bridge.getMethod(
-                "create",
-                android.content.Context::class.java,
-                CoroutineScope::class.java,
-            )
-            factory.invoke(null, appContext, applicationScope) as? SonoraCoreClient
-        }.getOrNull() ?: DemoCoreClient(applicationScope)
-    }
+    val core: SonoraCoreClient = coreResult.client
 
     val vault = SecretsVault(appContext)
     val credentials = CredentialStore(vault)
