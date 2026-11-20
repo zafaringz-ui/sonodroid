@@ -4,7 +4,7 @@
 
 - The debug build is wired to the public Deezer catalog: `GET /search?q=…&limit=25`, `/chart`, `/artist/{id}/top?limit=20`, `/album/{id}` plus `/album/{id}/tracks`, and Media3 30-second previews. The debug badge reads `Deezer public (30s previews)`.
 - Public mode uses no credentials, cookies, ARL, or tokens. Library, playlists, sign-in, downloads, and lyrics return an explicit not-available result. Missing optional track values default to empty artists, null album/artwork/preview, zero duration, and non-explicit; absent album artist is “Unknown artist”, with year/follower count unknown.
-- **Implementation is pending CI verification; no device run has been done.**
+- **CI-verified in run 44834626853** (Android assembly/unit tests, Rust and native ABI jobs, plus live Deezer fields smoke check). No device or emulator run has been done.
 
 Categories: **verified** means the indicated command was actually run with the
 recorded result; **implemented but untested** means source/configuration exists but
