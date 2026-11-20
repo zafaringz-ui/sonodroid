@@ -216,6 +216,30 @@ jobs:
         with:
           gradle-version: "8.10.2"
 
+      # The restored Gradle User Home can carry a JNA entry whose artifact bytes are missing
+      # while its metadata says otherwise. Gradle then trusts the entry, and the failure only
+      # surfaces when the AAR is transformed: ArtifactNotFoundException from inside
+      # TransformException, which reads like "the artifact does not exist" when it does.
+      # --refresh-dependencies hides it by re-resolving everything; dropping just this group
+      # is cheaper and keeps the rest of the cache. Harmless on a clean cache.
+      - name: Drop any stale JNA entry from the Gradle cache
+        run: |
+          set -euo pipefail
+          cache="${GRADLE_USER_HOME:-$HOME/.gradle}/caches"
+          echo "Gradle caches: $cache"
+          found=0
+          # Artifact bytes (modules-2), then the module metadata that can also go stale.
+          for dir in "$cache"/modules-2/files-2.1/net.java.dev.jna \
+                     "$cache"/modules-2/metadata-*/descriptors/net.java.dev.jna; do
+            for match in $dir; do
+              [ -e "$match" ] || continue
+              echo "removing $match"
+              rm -rf "$match"
+              found=1
+            done
+          done
+          [ "$found" -eq 0 ] && echo "no cached net.java.dev.jna entry to drop"
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install Rust targets for Android
