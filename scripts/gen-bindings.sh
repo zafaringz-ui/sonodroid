@@ -9,7 +9,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root/rust"
 
 library="${1:-$repo_root/android/core-bridge/src/main/jniLibs/arm64-v8a/libsonora_core.so}"
-out_dir="$repo_root/android/core-bridge/src/generated/kotlin"
+out_dir="$repo_root/android/core-bridge/src/generated"
 
 if [[ ! -f "$library" ]]; then
   echo "No library at $library — run scripts/build-rust.sh first." >&2

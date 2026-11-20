@@ -174,3 +174,356 @@ jobs:
           name: sonora-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
+
+  # Builds the real `libsonora_core.so` for three ABIs, generates the UniFFI Kotlin
+  # bindings from that library, and packages a `-Psonora.rust=true` debug APK.
+  #
+  # This job proves the native library compiles and reaches the APK. It does NOT
+  # prove the library loads on a device (no emulator here) and does NOT make the
+  # data real (the catalogue still serves fixtures).
+  android-native:
+    name: Android native
+    runs-on: ubuntu-latest
+    env:
+      # NDK r27c, pinned by exact revision and by archive URL.
+      NDK_REVISION: "27.2.12479018"
+      NDK_URL: "https://dl.google.com/android/repository/android-ndk-r27c-linux.zip"
+      # 3.5.5-3.5.7 are yanked on crates.io and `cargo install` refuses yanked
+      # versions, so 3.5.4 is the newest installable 3.x release.
+      CARGO_NDK_VERSION: "3.5.4"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust targets for Android
+        run: |
+          rustup target add \
+            aarch64-linux-android \
+            armv7-linux-androideabi \
+            x86_64-linux-android
+          rustup target list --installed | grep android
+
+      # nttld/setup-ndk cannot pin a revision: it derives its URL from a short
+      # "rNN" tag and skips downloading entirely when the runner already has that
+      # tag in its tool cache (the hosted image ships NDK "r27" = 27.0.12077973).
+      # Download the exact r27c archive instead and check Pkg.Revision, so the ABI
+      # build cannot silently use a different NDK than the one pinned here.
+      - name: Install Android NDK r27c
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ndk"
+          archive="$RUNNER_TEMP/ndk/android-ndk-r27c-linux.zip"
+          echo "Downloading android-ndk-r27c-linux.zip (${NDK_URL})"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$archive" "$NDK_URL"
+          unzip -q "$archive" -d "$RUNNER_TEMP/ndk"
+          echo "Extracted."
+          ls "$RUNNER_TEMP/ndk"
+
+      - name: Verify the NDK revision and export ANDROID_NDK_HOME
+        run: |
+          set -euo pipefail
+          ndk_path="$RUNNER_TEMP/ndk/android-ndk-r27c"
+          if [ ! -f "$ndk_path/source.properties" ]; then
+            echo "::error::No source.properties under $ndk_path"
+            ls -la "$RUNNER_TEMP/ndk"
+            exit 1
+          fi
+          actual=$(sed -n 's/^Pkg\.Revision *= *//p' "$ndk_path/source.properties")
+          echo "NDK root:      $ndk_path"
+          echo "Pkg.Revision:  '$actual'"
+          if [ "$actual" != "$NDK_REVISION" ]; then
+            echo "::error::Expected NDK $NDK_REVISION (r27c), found '$actual'"
+            exit 1
+          fi
+          echo "toolchain: $(ls "$ndk_path/toolchains/llvm/prebuilt" || true)"
+          echo "ANDROID_NDK_HOME=$ndk_path" >> "$GITHUB_ENV"
+
+      # `--locked` here pins cargo-ndk itself; it is unrelated to the project lockfile.
+      - name: Install cargo-ndk
+        run: |
+          if ! command -v cargo-ndk >/dev/null 2>&1; then
+            cargo install cargo-ndk --version "$CARGO_NDK_VERSION" --locked
+          fi
+          cargo ndk --version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          key: android-native
+
+      - name: Cross-compile the core for three ABIs
+        working-directory: rust
+        env:
+          # The release profile sets strip = "symbols" per the plan, but UniFFI
+          # library mode reads its `uniffi_*` metadata from the ELF static symbol
+          # table, which that setting deletes (rustc passes -Wl,--strip-all for a
+          # stripped link). Override it for this build only: the trade-off is a
+          # larger library, reported in the size log below.
+          CARGO_PROFILE_RELEASE_STRIP: none
+        run: |
+          set -o pipefail
+          mkdir -p ../ci-logs
+          # --no-strip: cargo-ndk 3.x otherwise runs a host `strip` over the copied
+          # libraries, dropping the static symbol table UniFFI metadata lives in.
+          cargo ndk \
+            -t arm64-v8a -t armeabi-v7a -t x86_64 \
+            -o ../android/core-bridge/src/main/jniLibs \
+            --no-strip \
+            build --release --locked -p mobile-core 2>&1 | tee ../ci-logs/cargo-ndk.log
+
+      - name: Assert the three shared libraries exist
+        run: |
+          set -euo pipefail
+          jni=android/core-bridge/src/main/jniLibs
+          missing=0
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            so="$jni/$abi/libsonora_core.so"
+            if [ ! -f "$so" ]; then
+              echo "::error::Missing shared library for $abi at $so"
+              missing=1
+            else
+              printf '%s  %10s bytes  %s\n' "$abi" "$(stat -c%s "$so")" "$so"
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "One or more ABIs did not produce libsonora_core.so." >&2
+            exit 1
+          fi
+          echo
+          echo "Shared library sizes:"
+          find "$jni" -name 'libsonora_core.so' -exec ls -lh {} \;
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            so="$jni/$abi/libsonora_core.so"
+            kb=$(( $(stat -c%s "$so") / 1024 ))
+            echo "::warning::libsonora_core.so $abi = ${kb} KiB ($(stat -c%s "$so") bytes)"
+          done
+
+      # Library-mode bindgen reads `uniffi_*` metadata from the ELF static symbol
+      # table. If the release profile's LTO drops those symbols, the generator
+      # finds zero components and writes no files without failing, so assert their
+      # presence here where the cause is unambiguous.
+      - name: Assert UniFFI metadata symbols survived the release link
+        run: |
+          set -euo pipefail
+          so=android/core-bridge/src/main/jniLibs/arm64-v8a/libsonora_core.so
+          echo "---- cargo target output (used for bindgen) ----"
+          readelf -S rust/target/aarch64-linux-android/release/libsonora_core.so | grep -E 'symtab|dynsym' || true
+          echo "---- static symtab, first 15 uniffi-ish rows ----"
+          readelf -sW "$so" | grep -i 'uniffi\|\.symtab' | head -n 15 || echo "(no matches)"
+          echo "---- section headers ----"
+          readelf -SW "$so" | grep -E 'symtab|dynsym|uniffi' || true
+          echo "static symtab uniffi symbols: $(readelf -sW "$so" | grep -c 'uniffi_' || true)"
+          echo "dynamic symtab uniffi symbols: $(readelf -sW --dyn-syms "$so" | grep -c 'uniffi_' || true)"
+          echo "metadata symbols in static symtab:"
+          readelf -sW "$so" | grep -i 'UNIFFI_META_SONORA_CORE' | head -n 5 || echo "(none)"
+          # rustc upper-cases `#[no_mangle]` symbols on the Android targets, so the
+          # metadata appears as UNIFFI_META_*, not uniffi_meta_*.
+          if ! readelf -sW "$so" | grep -qi 'UNIFFI_META_SONORA_CORE'; then
+            echo "::error::No uniffi_* metadata symbols in the static symbol table; bindgen library mode cannot work"
+            echo "::error::sections: $(readelf -SW "$so" | grep -E 'symtab|dynsym' | tr -s ' ' | tr '\n' ';')"
+            echo "::error::symbol count: $(readelf -sW "$so" | wc -l)"
+            echo "::error::file size: $(stat -c%s "$so") bytes"
+            echo "::error::nearest names: $(readelf -sW "$so" | awk '{print $8}' | grep -i 'sonora\|uniffi' | head -n 5 | tr '\n' ' ')"
+            exit 1
+          fi
+
+      # Generated from the freshly built library, so the bindings always match the
+      # code that ships. `--features cli` pulls in `uniffi_bindgen` at exactly the
+      # crate's 0.28.3 version because it is the same dependency graph.
+      # Library mode requires the command to run inside the cargo workspace (it
+      # resolves the component through cargo_metadata) and reads the ELF with
+      # goblin, so the aarch64 build is fine on this x86_64 host.
+      #
+      # Toolchain split: the shared library is built with the pinned 1.85.0 from
+      # rust-toolchain.toml for reproducible output, but the `cli` feature pulls in
+      # uniffi_bindgen, whose dependency tree (textwrap 0.16.4) requires rustc 1.88.
+      # uniffi-bindgen is a host-side code generator, not part of the shipped
+      # artifact, so it runs with `+stable`. This does not affect the library.
+      - name: Generate UniFFI Kotlin bindings from the built library
+        working-directory: rust
+        run: |
+          set -o pipefail
+          # Generate from cargo's own output: cargo-ndk's copy in jniLibs is
+          # post-processed even with --no-strip in some versions.
+          so=target/aarch64-linux-android/release/libsonora_core.so
+          if [ ! -f "$so" ]; then
+            echo "::error::Expected the cargo output at rust/$so"
+            ls -la target/aarch64-linux-android/release/ | head -n 20
+            exit 1
+          fi
+          echo "generating from $so ($(stat -c%s "$so") bytes)"
+          out=../android/core-bridge/src/generated
+          mkdir -p ../ci-logs
+          rustup toolchain install stable --profile minimal --no-self-update >/dev/null 2>&1 || true
+          echo "library toolchain: $(rustc --version)"
+          echo "bindgen toolchain: $(rustc +stable --version)"
+          if cargo +stable run -p mobile-core --features cli --bin uniffi-bindgen -- \
+              generate \
+              --library "$so" \
+              --language kotlin \
+              --config crates/mobile-core/uniffi.toml \
+              --out-dir "$out" 2>&1 | tee ../ci-logs/uniffi-bindgen.log; then
+            status=0
+          else
+            status=${PIPESTATUS[0]}
+            if [ "$status" -eq 0 ]; then status=1; fi
+          fi
+          # Printed on every outcome: the artifact download is unreliable, so the
+          # failure text has to reach the step conclusion itself.
+          echo "===== uniffi-bindgen output (tail) ====="
+          tail -n 40 ../ci-logs/uniffi-bindgen.log || true
+          if [ "$status" -ne 0 ]; then
+            # The uploaded logs are not retrievable from every environment, so the
+            # last few lines are mirrored into annotations, which are always visible
+            # through the check-run API.
+            n=0
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              n=$((n + 1))
+              [ "$n" -gt 10 ] && break
+              echo "::error::bindgen: $line"
+            done < <(tail -n 10 ../ci-logs/uniffi-bindgen.log 2>/dev/null || true)
+            echo "::error::uniffi-bindgen generate failed with status $status"
+            exit "$status"
+          fi
+          echo
+          echo "Generated files:"
+          find "$out" -name '*.kt' -exec wc -l {} \;
+
+      # uniffi names the file "<namespace>.kt" under the configured package path.
+      # This asserts the three declarations the adapter in
+      # android/core-bridge/src/rust/... depends on actually exist.
+      - name: Verify the adapter's expected declarations are present
+        run: |
+          set -euo pipefail
+          root=android/core-bridge/src/generated
+          echo "ci-logs contents:"; ls -la ci-logs || true
+          echo "uniffi-bindgen.log size: $(wc -c < ci-logs/uniffi-bindgen.log 2>/dev/null || echo missing)"
+          echo "---- bindgen log (first 20 lines) ----"
+          head -n 20 ci-logs/uniffi-bindgen.log 2>/dev/null || true
+          echo "---- bindgen log (last 20 lines) ----"
+          tail -n 20 ci-logs/uniffi-bindgen.log 2>/dev/null || true
+          echo "Generated tree:"
+          find "$root" -name '*.kt' -exec wc -l {} +
+          f=$(find "$root" -name '*.kt' -path '*dev/sonora/core/ffi/*' -print -quit)
+          if [ -z "$f" ]; then
+            echo "===== bindgen log (tail, mirrored to annotations) ====="
+            n=0
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              n=$((n + 1))
+              [ "$n" -gt 12 ] && break
+              echo "::error::bindgen-tail: $line"
+            done < <(tail -n 12 ci-logs/uniffi-bindgen.log 2>/dev/null || true)
+            echo "Generated tree (full):"
+            find "$root" -type f 2>/dev/null | head -n 40
+            echo "any .kt anywhere in the workspace:"
+            find . -name '*.kt' -newer .github/workflows/build.yml 2>/dev/null | head -n 20
+            path=$(find "$root" -name '*.kt' -print -quit 2>/dev/null || true)
+            if [ -n "$path" ]; then
+              echo "::error::Bindings were written to $path, which is not dev/sonora/core/ffi"
+            else
+              echo "::error::No .kt files were generated under $root at all"
+            fi
+            exit 1
+          fi
+          if ! grep -q "uniffi_sonora_core_checksum_method" "$f" 2>/dev/null; then
+            echo "::warning::Bindings have no contract checksum symbols; library and bindings may have diverged"
+          fi
+          echo "Bindings file: $f"
+          echo "package line:  $(grep -m1 '^package ' "$f")"
+          rc=0
+          for decl in \
+            "open class SonoraCore" \
+            "interface CoreListener" \
+            "interface TokenMinter" \
+            "sealed class CoreException"; do
+            if grep -q "$decl" "$f"; then
+              echo "OK   $decl"
+            else
+              echo "::error::Missing declaration: $decl"
+              rc=1
+            fi
+          done
+          exit "$rc"
+
+      - name: Build the Rust-backed debug APK
+        working-directory: android
+        run: |
+          set -o pipefail
+          mkdir -p ../ci-logs
+          if gradle :app:assembleDebug -Psonora.rust=true --stacktrace 2>&1 | tee ../ci-logs/gradle-rust-assemble.log; then
+            status=0
+          else
+            status=${PIPESTATUS[0]}
+            if [ "$status" -eq 0 ]; then status=1; fi
+            echo 'Last 100 lines of Gradle output:'
+            tail -n 100 ../ci-logs/gradle-rust-assemble.log
+            # Kotlin compile errors only appear in the log; mirror them into
+            # annotations, which are readable even when artifacts are not.
+            echo 'Kotlin/Java errors:'
+            grep -E '^e: |^w: .*(unresolved|cannot|none of the following)' ../ci-logs/gradle-rust-assemble.log | head -n 25 || true
+            n=0
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              n=$((n + 1))
+              [ "$n" -gt 15 ] && break
+              echo "::error::kotlin: $line"
+            done < <(grep -E "What went wrong|error:|FAILED|Caused by:|^e: |Execution failed|requires|compiled against|minCompileSdk" ../ci-logs/gradle-rust-assemble.log | grep -v '^> Task' | head -n 18 || true)
+            exit "$status"
+          fi
+
+      # No device here, so this is the closest thing to "did it package?".
+      - name: Smoke-check native libraries inside the APK
+        run: |
+          set -euo pipefail
+          apk=$(find android/app/build/outputs/apk/debug -name '*.apk' | head -n 1)
+          if [ -z "$apk" ]; then
+            echo "::error::No APK produced"
+            exit 1
+          fi
+          echo "APK: $apk ($(stat -c%s "$apk") bytes)"
+          echo
+          if command -v unzip >/dev/null 2>&1; then
+            unzip -l "$apk" | grep 'lib/' || true
+            echo
+            for abi in arm64-v8a armeabi-v7a x86_64; do
+              if ! unzip -l "$apk" | grep -q "lib/$abi/libsonora_core.so"; then
+                echo "::error::APK is missing lib/$abi/libsonora_core.so"
+                exit 1
+              fi
+              echo "OK  lib/$abi/libsonora_core.so"
+              entry=$(unzip -l "$apk" | grep "lib/$abi/libsonora_core.so" | awk '{print $1}')
+              echo "::warning::packaged lib/$abi/libsonora_core.so = ${entry} bytes"
+            done
+            echo "::warning::APK total = $(stat -c%s "$apk") bytes"
+          else
+            echo "::error::unzip is unavailable; cannot inspect the APK"
+            exit 1
+          fi
+
+      - name: Upload the Rust-backed APK
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonora-debug-rust-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
+
+      - name: Upload native logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-native-logs
+          path: ci-logs/
+          if-no-files-found: warn

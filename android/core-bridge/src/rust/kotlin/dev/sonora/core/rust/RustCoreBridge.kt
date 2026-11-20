@@ -6,6 +6,7 @@ import dev.sonora.core.ffi.AccountStatus
 import dev.sonora.core.ffi.Album
 import dev.sonora.core.ffi.Artist
 import dev.sonora.core.ffi.CoreConfig
+import dev.sonora.core.ffi.CoreException
 import dev.sonora.core.ffi.CoreEvent
 import dev.sonora.core.ffi.CoreListener
 import dev.sonora.core.ffi.HomeItem
@@ -59,13 +60,29 @@ import kotlinx.coroutines.launch
  * UniFFI adapter.
  *
  * Part of the `-Psonora.rust=true` source set: it references the Kotlin bindings that
- * `scripts/gen-bindings.sh` writes into `src/generated/kotlin`, so a default build
- * never sees it. Type and member names follow uniffi 0.28's Kotlin generate
- * conventions (`snake_case` in Rust becomes `camelCase` here); after the first code
- * generation run, compare this file against the generated output and adjust the few
- * places noted with `// codegen:` comments.
+ * `scripts/gen-bindings.sh` / the `Android native` CI job writes into
+ * `src/generated/`, so a default build never sees it.
+ *
+ * This file was reconciled against uniffi 0.28.3's Kotlin backend, not guessed:
+ *  * objects generate an interface plus an `open class <Name> : Disposable, AutoCloseable`,
+ *    so `SonoraCore` is returned directly and closed via `AutoCloseable`;
+ *  * a `with_foreign` trait generates a plain `interface`, so `object : CoreListener`
+ *    is a legal implementation;
+ *  * records are `data class` with `var` fields by default;
+ *  * flat enums are Kotlin `enum class` with SHOUTY_SNAKE variants, derived from
+ *    the Rust variant name by splitting on word boundaries, so `YouTubeMusic`
+ *    becomes `YOU_TUBE_MUSIC`, `HiFi` becomes `HI_FI` and `HiRes` becomes
+ *    `HI_RES` — not what the app-level model enums use;
+ *  * `#[uniffi(flat_error)]` on `CoreError` generates `sealed class CoreException`
+ *    with `CoreException.NotImplemented(message)`-style subclasses: the Kotlin
+ *    backend renames any type used as an error by replacing a trailing `Error`
+ *    with `Exception` (KotlinCodeOracle::convert_error_suffix), so the Kotlin
+ *    name is not the Rust name;
+ *  * async exports become `suspend fun` that throw `CoreError`. Kotlin does not
+ *    enforce checked exceptions, but the ViewModels already wrap these calls in
+ *    `runCatching`; `@Throws` is kept as documentation for the JVM signature.
  */
-class UniffiCoreClient private constructor(
+class UniffiCoreClient(
     private val core: SonoraCore,
     private val scope: CoroutineScope,
 ) : SonoraCoreClient {
@@ -128,27 +145,34 @@ class UniffiCoreClient private constructor(
 
     // ---- catalogue ----------------------------------------------------------
 
-    override suspend fun home(provider: Provider): HomeFeed = core.home(provider.toFfi()).toModel()
+    @Throws(CoreException::class)
+    override suspend fun home(provider: Provider): HomeFeed =
+        core.home(provider.toFfi()).toModel()
 
+    @Throws(CoreException::class)
     override suspend fun library(provider: Provider): LibraryModel =
         core.library(provider.toFfi()).toModel().also { snapshot ->
             _downloads.value = snapshot.downloads
         }
 
+    @Throws(CoreException::class)
     override suspend fun search(
         provider: Provider,
         query: String,
         filter: SearchFilterModel,
     ): SearchResults = core.search(provider.toFfi(), query, filter.toFfi()).toModel()
 
+    @Throws(CoreException::class)
     override suspend fun album(provider: Provider, albumId: String): AlbumModel =
         core.album(provider.toFfi(), albumId).toModel()
 
+    @Throws(CoreException::class)
     override suspend fun playlist(provider: Provider, playlistId: String): PlaylistDetail {
         val detail = core.playlist(provider.toFfi(), playlistId)
         return PlaylistDetail(detail.playlist.toModel(), detail.tracks.map(Track::toModel))
     }
 
+    @Throws(CoreException::class)
     override suspend fun lyrics(trackId: String): Lyrics {
         val lyrics = core.lyrics(trackId)
         return Lyrics(
@@ -169,8 +193,12 @@ class UniffiCoreClient private constructor(
         accountLabel: String,
         plan: PlanTier,
     ): Result<Unit> = runCatching {
-        // codegen: validation of the stored ARL/cookies happens inside the Rust
-        // provider client once Phase 3/4 land; today this marks the session.
+        // Validation of the stored ARL/cookies happens inside the Rust provider
+        // client once Phase 3/4 land; today this marks the session.
+        //
+        // `accountId` uses the *model* Provider's slug: the Rust enum's `slug()`
+        // is on a plain impl block, which UniFFI does not export, so the FFI
+        // Provider has no such method.
         core.markSignedIn(
             provider.toFfi(),
             accountId = provider.slug,
@@ -194,6 +222,7 @@ class UniffiCoreClient private constructor(
     override fun qualityLadder(provider: Provider): List<QualityModel> =
         core.qualityLadder(provider.toFfi()).map(StreamQuality::toModel)
 
+    @Throws(CoreException::class)
     override fun resolvedQuality(provider: Provider, purpose: StreamPurpose): QualityModel? =
         runCatching {
             core.resolvedQuality(provider.toFfi(), purpose.toFfi()).toModel()
@@ -218,6 +247,8 @@ class UniffiCoreClient private constructor(
 
     override fun setShuffle(enabled: Boolean) = core.setShuffle(enabled)
 
+    // Rust returns false when either index is out of range; the client interface
+    // has no place to report that, so the boolean is deliberately ignored.
     override fun moveInQueue(from: Int, to: Int) {
         core.moveInQueue(from, to)
     }
@@ -246,11 +277,17 @@ class UniffiCoreClient private constructor(
          */
         @JvmStatic
         fun create(context: Context, scope: CoroutineScope): SonoraCoreClient {
+            // `useFixtures` must stay true until the catalogue clients exist:
+            // `require_online()` in api.rs returns NotImplemented for every
+            // catalogue call when it is false, so Home/Library/Search would fail
+            // immediately on a correctly loaded core. Keep this in step with
+            // `CoreFactory.ADAPTER_USES_FIXTURES` in the app module, which decides
+            // whether the debug badge says "fixtures" or "live".
             val config = CoreConfig(
                 dataDir = context.filesDir.absolutePath,
                 cacheDir = context.cacheDir.absolutePath,
                 defaultProvider = dev.sonora.core.ffi.Provider.DEEZER,
-                useFixtures = false,
+                useFixtures = true,
                 crossfadeSeconds = 0,
                 network = dev.sonora.core.ffi.NetworkKind.WIFI,
             )
@@ -263,12 +300,12 @@ class UniffiCoreClient private constructor(
 
 private fun Provider.toFfi(): dev.sonora.core.ffi.Provider = when (this) {
     Provider.DEEZER -> dev.sonora.core.ffi.Provider.DEEZER
-    Provider.YOUTUBE_MUSIC -> dev.sonora.core.ffi.Provider.YOUTUBE_MUSIC
+    Provider.YOUTUBE_MUSIC -> dev.sonora.core.ffi.Provider.YOU_TUBE_MUSIC
 }
 
 private fun dev.sonora.core.ffi.Provider.toModel(): Provider = when (this) {
     dev.sonora.core.ffi.Provider.DEEZER -> Provider.DEEZER
-    dev.sonora.core.ffi.Provider.YOUTUBE_MUSIC -> Provider.YOUTUBE_MUSIC
+    dev.sonora.core.ffi.Provider.YOU_TUBE_MUSIC -> Provider.YOUTUBE_MUSIC
 }
 
 private fun Track.toModel(): TrackModel = TrackModel(
@@ -425,7 +462,7 @@ private fun StreamQuality.toModel(): QualityModel = QualityModel(
         dev.sonora.core.ffi.QualityTier.NORMAL -> QualityTier.NORMAL
         dev.sonora.core.ffi.QualityTier.HIGH -> QualityTier.HIGH
         dev.sonora.core.ffi.QualityTier.LOSSLESS -> QualityTier.LOSSLESS
-        dev.sonora.core.ffi.QualityTier.HIRES -> QualityTier.HIRES
+        dev.sonora.core.ffi.QualityTier.HI_RES -> QualityTier.HIRES
     },
     codec = codec,
     bitrateKbps = bitrateKbps,
@@ -438,14 +475,14 @@ private fun PlanTier.toFfi(): dev.sonora.core.ffi.PlanTier = when (this) {
     PlanTier.FREE -> dev.sonora.core.ffi.PlanTier.FREE
     PlanTier.STANDARD -> dev.sonora.core.ffi.PlanTier.STANDARD
     PlanTier.PREMIUM -> dev.sonora.core.ffi.PlanTier.PREMIUM
-    PlanTier.HIFI -> dev.sonora.core.ffi.PlanTier.HIFI
+    PlanTier.HIFI -> dev.sonora.core.ffi.PlanTier.HI_FI
 }
 
 private fun dev.sonora.core.ffi.PlanTier.toModel(): PlanTier = when (this) {
     dev.sonora.core.ffi.PlanTier.FREE -> PlanTier.FREE
     dev.sonora.core.ffi.PlanTier.STANDARD -> PlanTier.STANDARD
     dev.sonora.core.ffi.PlanTier.PREMIUM -> PlanTier.PREMIUM
-    dev.sonora.core.ffi.PlanTier.HIFI -> PlanTier.HIFI
+    dev.sonora.core.ffi.PlanTier.HI_FI -> PlanTier.HIFI
 }
 
 private fun NetworkKind.toFfi(): dev.sonora.core.ffi.NetworkKind = when (this) {

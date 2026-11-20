@@ -46,6 +46,10 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // `:core-bridge` desugars java.lang.ref.Cleaner when the UniFFI bindings are
+        // compiled in (-Psonora.rust=true). A consuming module must enable the same
+        // desugaring or the AAR metadata check fails, so mirror the flag here.
+        isCoreLibraryDesugaringEnabled = rustEnabled
     }
     kotlinOptions {
         jvmTarget = "17"
@@ -73,6 +77,10 @@ dependencies {
     implementation(project(":platform-secure"))
     implementation(project(":platform-webview"))
     implementation(project(":service-playback"))
+
+    if (rustEnabled) {
+        coreLibraryDesugaring(libs.desugar.jdk.libs)
+    }
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
