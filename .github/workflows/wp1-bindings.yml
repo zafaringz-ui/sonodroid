@@ -101,9 +101,11 @@ jobs:
         working-directory: rust
         run: |
           set -euo pipefail
-          printf '\n[patch.crates-io]\n# Local patch: bindgen on by default so Android gets bindings. See\n# vendor/rquickjs-sys/VENDORED.md.\nrquickjs-sys = { path = "vendor/rquickjs-sys" }\n' >> Cargo.toml
-          tail -n 5 Cargo.toml
-          echo "::notice title=patch::applied at runtime, not committed"
+          # The entry goes INSIDE the existing [patch.crates-io] table. Appending a second
+          # header is a hard error ("duplicate key --> Cargo.toml:267", run 44776146749),
+          # which is how the first attempt failed.
+          python3 ../scripts/wp1-apply-rquickjs-patch.py Cargo.toml
+          grep -n -A3 '^\[patch.crates-io\]' Cargo.toml | head -n 6
 
       # Now the resolution has real work to do: bindgen + clang-sys enter the graph, and
       # rquickjs-sys loses its registry source because it is a path dependency.
@@ -201,8 +203,23 @@ jobs:
       - name: Package the bindings
         if: always()
         run: |
+          # Fallback: if the dump variable did not reach a build script for some ABI, take
+          # bindgen's own output from the target directory instead. The triple is in the
+          # path, so the file still says which ABI it is.
+          if [ ! -d /tmp/bindings ] || [ -z "$(ls -A /tmp/bindings 2>/dev/null)" ]; then
+            mkdir -p /tmp/bindings
+            for f in $(find rust/target rust/target-armv7 -path '*rquickjs-sys-*/out/bindings.rs' 2>/dev/null); do
+              triple=$(echo "$f" | sed -E 's#^rust/(target|target-armv7)/([^/]+)/.*#\2#')
+              cp "$f" "/tmp/bindings/fallback-${triple}.rs"
+              echo "::notice title=binding-fallback::copied $f as fallback-${triple}.rs"
+            done
+          fi
           ls -la /tmp/bindings 2>/dev/null || echo "no bindings directory"
-          cd /tmp && if [ -d bindings ]; then zip -q bindings.zip bindings/*.rs; ls -l bindings.zip; fi
+          cd /tmp && if [ -d bindings ] && [ -n "$(ls -A bindings 2>/dev/null)" ]; then
+            zip -q bindings.zip bindings/*.rs && ls -l bindings.zip
+          else
+            echo "::error title=bindings::nothing captured"
+          fi
 
       - uses: actions/upload-artifact@v4
         if: always()
