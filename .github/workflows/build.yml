@@ -474,7 +474,7 @@ jobs:
               n=$((n + 1))
               [ "$n" -gt 15 ] && break
               echo "::error::kotlin: $line"
-            done < <(grep -E '^e: |^\* What went wrong|^> |Caused by:|error:|FAILURE:' ../ci-logs/gradle-rust-assemble.log | head -n 15 || true)
+            done < <(grep -E "What went wrong|error:|FAILED|Caused by:|^e: |Execution failed" ../ci-logs/gradle-rust-assemble.log | grep -v '^> Task' | head -n 15 || true)
             exit "$status"
           fi
 
