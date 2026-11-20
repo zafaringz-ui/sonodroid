@@ -1,14 +1,21 @@
-# WP-1 experiment, NOT the fix. Three questions, answered by building the real thing:
-#   A. Does `rquickjs-sys`'s `bindgen` feature plus a patched build.rs actually compile
-#      `music` for the three Android ABIs?
-#   B. Do bindgen-generated bindings differ per ABI, or is one layout enough?
-#   C. Does the Android build get far enough to reach aws-lc-sys / libsqlite3-sys /
-#      opusic-sys, which the first gate never reached?
+# WP-1 experiment, NOT the fix. Four questions, answered by building the real thing:
+#   A. Does `rquickjs-sys`'s `bindgen` feature plus a per-target clang `--target` actually
+#      compile `rquickjs-sys`, and therefore `music`, for the three Android ABIs?
+#   B. Whose bindgen environment is right? cargo-ndk exports
+#      `BINDGEN_EXTRA_CLANG_ARGS_<triple>` as `--sysroot=... -I...` with NO `--target=`,
+#      in every released version (v3.5.4 through v4.1.2; the fix, commit ee7329a, is on
+#      master only). Without `--target`, bindgen binds the HOST layout: for armv7 that
+#      means 64-bit `size_t` and the 64-bit `JSValue` union, which is silently wrong.
+#      This workflow builds armv7 twice — once with cargo-ndk's args, once with a
+#      `--target=` added — and prints the generated shapes so the difference is visible.
+#   C. Do the generated bindings differ per ABI, or can one layout serve all three?
+#   D. Does the build reach aws-lc-sys / libsqlite3-sys / opusic-sys, which the first
+#      WP-1 gate never got to because cargo stops at the first hard error?
 #
-# It touches nothing in the repository's Rust sources: the `rquickjs-sys` whose build.rs is
-# patched is the copy cargo extracted into the registry from crates.io, and the `bindgen`
-# feature is turned on from the command line (`--features rquickjs-sys/bindgen`), so
-# `Cargo.lock` stays untouched. Both are why this is a probe and not the patch.
+# Nothing in `rust/` is edited. The `rquickjs-sys` whose build.rs is patched is the copy
+# cargo extracted into the registry from crates.io; the `bindgen` feature is enabled from
+# the command line. `--locked` is exercised first precisely to record that it fails, i.e.
+# that this fix cannot land without a lockfile change.
 #
 # Everything is reported through annotations: job logs and artifacts cannot be read back
 # from the authoring environment, so anything that is not an annotation is lost.
@@ -27,6 +34,11 @@ env:
   NDK_URL: "https://dl.google.com/android/repository/android-ndk-r27c-linux.zip"
   NDK_SHA256: "59c2f6dc96743b5daf5d1626684640b20a6bd2b1d85b13156b90333741bad5cc"
   CARGO_NDK_VERSION: "3.5.4"
+  # One API level for every ABI, so the clang target below is reproducible by hand.
+  ANDROID_API: "21"
+  # Be explicit about how git dependencies resolve: cargo-ndk replaces CC/CFLAGS/AR and
+  # also unsets the credential helper for subprocesses, so libgit2 cannot authenticate.
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 jobs:
   probe:
@@ -68,31 +80,52 @@ jobs:
           cargo install cargo-ndk --version "$CARGO_NDK_VERSION" --locked || true
           cargo ndk --version || true
 
-      # Fetch the graph without building, so the registry copy of rquickjs-sys exists and
-      # can be patched. `--features` is not needed to fetch.
-      - name: Fetch dependencies
+      - name: Fetch the locked dependency graph
         working-directory: rust
         run: |
-          cargo fetch --locked 2>&1 | tail -n 3
+          cargo fetch --locked 2>&1 | tail -n 3 || true
           ls -d "$HOME"/.cargo/registry/src/*/rquickjs-sys-0.12.2 > /tmp/rqjs-dir || true
           echo "::notice title=probe-rqjs-dir::$(cat /tmp/rqjs-dir 2>/dev/null || echo MISSING)"
-          ls "$(cat /tmp/rqjs-dir 2>/dev/null)" 2>/dev/null | head -n 20 || true
-          ls "$(cat /tmp/rqjs-dir 2>/dev/null)/quickjs" 2>/dev/null | head -n 20 || true
 
-      # Enabling `bindgen` makes `rquickjs-sys` depend on `bindgen 0.72` + `clang-sys`.
-      # If those are not already in Cargo.lock, `--locked` fails here — which is itself the
-      # answer to "can the fix land without regenerating the lockfile?".
-      - name: Does --locked survive enabling the bindgen feature?
+      # A: recorded, expected to fail. If it passes, the fix needs no lockfile change at all.
+      - name: "Q1 with --locked (expected: lockfile needs updating)"
         working-directory: rust
         run: |
           set -o pipefail
-          if cargo ndk -t arm64-v8a check --features rquickjs-sys/bindgen -p music --locked 2>&1 | tail -n 20; then
-            echo "::notice title=probe-locked::LOCKED OK — bindgen deps already resolved"
+          if cargo ndk -t arm64-v8a -p "$ANDROID_API" check \
+               --features rquickjs-sys/bindgen -p music --locked > /tmp/locked.log 2>&1; then
+            echo "::notice title=probe-locked::PASSED — bindgen deps are already in Cargo.lock"
           else
-            echo "::error title=probe-locked::LOCKED FAILED — see probe-locked-tail"
+            body=$(grep -E '^(error|help|  )' /tmp/locked.log | head -n 12 | tr '\n' '%0A' | head -c 4000)
+            echo "::error title=probe-locked::FAILED as expected ::$body"
           fi
+          echo "::notice title=probe-locked-tail::$(tail -n 12 /tmp/locked.log | tr '\n' '%0A' | head -c 4000)"
 
-      - name: Patch registry copy of rquickjs-sys (probe only)
+      # Record exactly which packages the feature pulls in. This must actually compile:
+      # the bindgen deps have to be *built* for the host, which is where libclang is used.
+      - name: "Q2 what the bindgen feature adds to the graph"
+        working-directory: rust
+        run: |
+          set -o pipefail
+          cp Cargo.lock /tmp/Cargo.lock.before
+          if cargo ndk -t arm64-v8a -p "$ANDROID_API" check \
+               --features rquickjs-sys/bindgen -p music > /tmp/resolve.log 2>&1; then
+            echo "::notice title=probe-resolve::compiled (aarch64, bindgen feature, no --locked)"
+          else
+            echo "::error title=probe-resolve::FAILED — see probe-resolve-tail"
+          fi
+          added=$(diff <(grep '^name = ' /tmp/Cargo.lock.before) <(grep '^name = ' Cargo.lock) \
+                  | grep '^>' | sed 's/^> name = //' | tr -d '"' | sort -u | tr '\n' ' ')
+          echo "::notice title=probe-lock-added::${added:-none}"
+          echo "::notice title=probe-lock-diffstat::$(git diff --stat Cargo.lock | tr '\n' ' ')"
+          tail=$(grep -E '^(error|warning: rquickjs|PROBE_TARGET)' /tmp/resolve.log | head -n 25 | tr '\n' '%0A' | head -c 6000)
+          echo "::notice title=probe-resolve-notes::$tail"
+          echo "::notice title=probe-resolve-tail::$(tail -n 20 /tmp/resolve.log | tr '\n' '%0A' | head -c 6000)"
+          # Leave the lockfile dirty for the rest of the job (that mirrors the real fix) but
+          # say so, so nobody thinks it was left dirty by accident.
+          echo "::notice title=probe-lock-state::Cargo.lock left resolved for the builds below; repo state is unchanged"
+
+      - name: Patch the registry copy of rquickjs-sys (probe only)
         run: |
           set -euo pipefail
           d=$(cat /tmp/rqjs-dir 2>/dev/null || true)
@@ -103,62 +136,92 @@ jobs:
           else
             echo "::error title=probe-patch::anchor not found — rquickjs-sys build.rs changed"
           fi
-          echo "::notice title=probe-quickjs-src::$(ls "$d/quickjs" 2>/dev/null | head -n 5 | tr '\n' ' ')"
+          echo "::notice title=probe-quickjs-src::$(ls "$d/quickjs" 2>/dev/null | head -n 6 | tr '\n' ' ')"
 
-      # The main event: real build, three ABIs, bindgen on, host-vs-target clamp disabled.
-      - name: Cross-compile music with bindgen (aarch64)
+      # The per-ABI clang arguments the fix needs, spelled out. `--target` is the part
+      # cargo-ndk leaves out; `--sysroot` and the arch include dir are what it does pass.
+      - name: Compute bindgen clang args per ABI
+        run: |
+          set -euo pipefail
+          sysroot="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          {
+            echo "BINDGEN_ARGS_arm64=--target=aarch64-linux-android${ANDROID_API} --sysroot=${sysroot} -I${sysroot}/usr/include/aarch64-linux-android"
+            echo "BINDGEN_ARGS_armv7=--target=armv7a-linux-androideabi${ANDROID_API} --sysroot=${sysroot} -I${sysroot}/usr/include/arm-linux-androideabi"
+            echo "BINDGEN_ARGS_x86_64=--target=x86_64-linux-android${ANDROID_API} --sysroot=${sysroot} -I${sysroot}/usr/include/x86_64-linux-android"
+            echo "BINDGEN_ARGS_armv7_notarget=--sysroot=${sysroot} -I${sysroot}/usr/include/arm-linux-androideabi"
+          } >> "$GITHUB_ENV"
+          cat "$GITHUB_ENV" | grep BINDGEN_ARGS
+
+      # One ABI per step so a failure names its own ABI. `PROBE_HOST_BINDGEN` disables the
+      # crate's host-vs-target clamp in the patched build.rs; the dump goes to /tmp/probe.
+      - name: "music via bindgen (aarch64-linux-android)"
         working-directory: rust
         env:
           PROBE_HOST_BINDGEN: "1"
           PROBE_DUMP_DIR: "/tmp/probe"
+          BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android: ${{ env.BINDGEN_ARGS_arm64 }}
         run: |
           set -o pipefail
-          if cargo ndk -t arm64-v8a check --features rquickjs-sys/bindgen -p music --locked \
+          if cargo ndk -t arm64-v8a -p "$ANDROID_API" check --features rquickjs-sys/bindgen -p music \
                > /tmp/aarch64.log 2>&1; then
             echo "::notice title=probe-aarch64::PASS"
           else
             echo "::error title=probe-aarch64::FAIL"
           fi
-          body=$(grep -E '(PROBE_TARGET|^error|warning: rquickjs)' /tmp/aarch64.log | head -n 30 | tr '\n' '%0A' | head -c 6000)
-          echo "::notice title=probe-aarch64-shapes::$body"
-          tail=$(tail -n 25 /tmp/aarch64.log | tr '\n' '%0A' | head -c 6000)
-          echo "::error title=probe-aarch64-tail::$tail"
+          echo "::notice title=probe-aarch64-shapes::$(grep -E '(PROBE_TARGET|^error|warning: rquickjs)' /tmp/aarch64.log | head -n 30 | tr '\n' '%0A' | head -c 6000)"
+          echo "::error title=probe-aarch64-tail::$(tail -n 20 /tmp/aarch64.log | tr '\n' '%0A' | head -c 6000)"
 
-      - name: Cross-compile music with bindgen (armv7)
+      - name: "music via bindgen (x86_64-linux-android)"
         working-directory: rust
         env:
           PROBE_HOST_BINDGEN: "1"
           PROBE_DUMP_DIR: "/tmp/probe"
+          BINDGEN_EXTRA_CLANG_ARGS_x86_64_linux_android: ${{ env.BINDGEN_ARGS_x86_64 }}
         run: |
           set -o pipefail
-          if cargo ndk -t armeabi-v7a check --features rquickjs-sys/bindgen -p music --locked \
-               > /tmp/armv7.log 2>&1; then
-            echo "::notice title=probe-armv7::PASS"
-          else
-            echo "::error title=probe-armv7::FAIL"
-          fi
-          body=$(grep -E '(PROBE_TARGET|^error|warning: rquickjs)' /tmp/armv7.log | head -n 30 | tr '\n' '%0A' | head -c 6000)
-          echo "::notice title=probe-armv7-shapes::$body"
-          tail=$(tail -n 25 /tmp/armv7.log | tr '\n' '%0A' | head -c 6000)
-          echo "::error title=probe-armv7-tail::$tail"
-
-      - name: Cross-compile music with bindgen (x86_64)
-        working-directory: rust
-        env:
-          PROBE_HOST_BINDGEN: "1"
-          PROBE_DUMP_DIR: "/tmp/probe"
-        run: |
-          set -o pipefail
-          if cargo ndk -t x86_64 check --features rquickjs-sys/bindgen -p music --locked \
+          if cargo ndk -t x86_64 -p "$ANDROID_API" check --features rquickjs-sys/bindgen -p music \
                > /tmp/x86_64.log 2>&1; then
             echo "::notice title=probe-x86_64::PASS"
           else
             echo "::error title=probe-x86_64::FAIL"
           fi
-          body=$(grep -E '(PROBE_TARGET|^error|warning: rquickjs)' /tmp/x86_64.log | head -n 30 | tr '\n' '%0A' | head -c 6000)
-          echo "::notice title=probe-x86_64-shapes::$body"
-          tail=$(tail -n 25 /tmp/x86_64.log | tr '\n' '%0A' | head -c 6000)
-          echo "::error title=probe-x86_64-tail::$tail"
+          echo "::notice title=probe-x86_64-shapes::$(grep -E '(PROBE_TARGET|^error|warning: rquickjs)' /tmp/x86_64.log | head -n 30 | tr '\n' '%0A' | head -c 6000)"
+          echo "::error title=probe-x86_64-tail::$(tail -n 20 /tmp/x86_64.log | tr '\n' '%0A' | head -c 6000)"
+
+      - name: "music via bindgen (armv7-linux-androideabi, --target supplied)"
+        working-directory: rust
+        env:
+          PROBE_HOST_BINDGEN: "1"
+          PROBE_DUMP_DIR: "/tmp/probe"
+          BINDGEN_EXTRA_CLANG_ARGS_armv7_linux_androideabi: ${{ env.BINDGEN_ARGS_armv7 }}
+        run: |
+          set -o pipefail
+          if cargo ndk -t armeabi-v7a -p "$ANDROID_API" check --features rquickjs-sys/bindgen -p music \
+               > /tmp/armv7.log 2>&1; then
+            echo "::notice title=probe-armv7::PASS (with --target)"
+          else
+            echo "::error title=probe-armv7::FAIL (with --target)"
+          fi
+          echo "::notice title=probe-armv7-shapes::$(grep -E '(PROBE_TARGET|^error|warning: rquickjs)' /tmp/armv7.log | head -n 30 | tr '\n' '%0A' | head -c 6000)"
+          echo "::error title=probe-armv7-tail::$(tail -n 20 /tmp/armv7.log | tr '\n' '%0A' | head -c 6000)"
+
+      # The landmine, isolated: same crate, same target, cargo-ndk's own arguments (no
+      # `--target`). It compiles — and produces 64-bit layouts for a 32-bit ABI.
+      - name: "rquickjs-sys alone (armv7, NO --target — cargo-ndk's own args)"
+        working-directory: rust
+        env:
+          PROBE_HOST_BINDGEN: "1"
+          PROBE_DUMP_DIR: "/tmp/probe-notarget"
+          BINDGEN_EXTRA_CLANG_ARGS_armv7_linux_androideabi: ${{ env.BINDGEN_ARGS_armv7_notarget }}
+        run: |
+          set -o pipefail
+          if cargo ndk -t armeabi-v7a -p "$ANDROID_API" check --features bindgen -p rquickjs-sys \
+               > /tmp/armv7-notarget.log 2>&1; then
+            echo "::notice title=probe-armv7-notarget::compiled"
+          else
+            echo "::error title=probe-armv7-notarget::FAILED"
+          fi
+          echo "::notice title=probe-armv7-notarget-shapes::$(grep -E '(PROBE_TARGET|^error)' /tmp/armv7-notarget.log | head -n 20 | tr '\n' '%0A' | head -c 6000)"
 
       # Which native crates got far enough to produce build artifacts. This is the §1c
       # question the first gate could not answer.
@@ -167,35 +230,31 @@ jobs:
         run: |
           for pair in aws-lc-sys:aws_lc_sys aws-lc-rs:aws_lc_rs ring:ring \
                       libsqlite3-sys:libsqlite3_sys opusic-sys:opusic_sys \
-                      rquickjs-sys:rquickjs_sys quickjs:libquickjs; do
+                      rquickjs-sys:rquickjs_sys; do
             name=${pair%%:*}; dir=${pair##*:}
             hit=$(find rust/target -type d -name "${dir}-*" 2>/dev/null | head -n 1)
             if [ -n "$hit" ]; then echo "::notice title=probe-built::${name}: artifacts present"
             else echo "::notice title=probe-built::${name}: NO artifacts"; fi
           done
 
-      # Shapes across ABIs, side by side, so one annotation answers "does one layout fit all".
-      - name: Compare generated layouts across ABIs
+      # The shapes side by side. This is the whole point of the dump.
+      - name: Compare generated layouts
         if: always()
         run: |
           out=""
-          for f in /tmp/probe/bindings-*.rs; do
+          for f in /tmp/probe/bindings-*.rs /tmp/probe-notarget/bindings-*.rs; do
             [ -f "$f" ] || continue
-            abi=$(basename "$f" .rs)
-            size=$(stat -c%s "$f")
+            label=$(basename "$(dirname "$f")")/$(basename "$f" .rs)
             line=$(grep -m1 "^pub type size_t" "$f" | tr -d '\r')
-            nan=$(grep -c "JS_NAN_BOXING" "$f")
+            nan=$(grep -c "define JS_NAN_BOXING 1" "$f")
             jsval=$(grep -m1 "^pub type JSValue = " "$f")
-            out="${out}${abi}:${size}B size_t=[${line}] nan_boxing_hits=${nan} ${jsval}%0A"
+            union=$(grep -c "^pub union JSValueUnion" "$f")
+            out="${out}${label}: size_t=[${line}] nan_boxing=${nan} jsvalue_union=${union} ${jsval}%0A"
           done
           [ -n "$out" ] || out="no bindings dumped"
           echo "::notice title=probe-layouts::$out"
-          for f in /tmp/probe/bindings-*.rs; do
-            [ -f "$f" ] || continue
-            echo "::notice title=probe-head $(basename "$f")::$(head -n 3 "$f" | tr '\n' ' ' | head -c 300)"
-          done
 
       - name: Verdict
         if: always()
         run: |
-          echo "::notice title=probe-verdict::see probe-aarch64 / probe-armv7 / probe-x86_64, probe-locked, probe-layouts, probe-built"
+          echo "::notice title=probe-verdict::read probe-locked, probe-lock-added, probe-aarch64, probe-x86_64, probe-armv7, probe-armv7-notarget, probe-layouts, probe-built"
