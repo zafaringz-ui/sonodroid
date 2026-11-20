@@ -185,8 +185,13 @@ jobs:
     name: Android native
     runs-on: ubuntu-latest
     env:
-      # Pinned so the native job cannot drift from the Gradle job's tooling.
-      NDK_VERSION: "27.2.12479018"
+      # NDK r27c. nttld/setup-ndk derives its download URL from this string and
+      # only understands the short "rNN" form: getArchString() does
+      # `version.slice(1)` then `parseInt`, so a full revision like
+      # 27.2.12479018 becomes NaN and the required "-x86_64" suffix is dropped,
+      # which yields a 404. The full revision is verified after extraction instead.
+      NDK_TAG: "r27"
+      NDK_REVISION: "27.2.12479018"
       CARGO_NDK_VERSION: "3.5.7"
     steps:
       - uses: actions/checkout@v4
@@ -210,22 +215,23 @@ jobs:
             x86_64-linux-android
           rustup target list --installed | grep android
 
-      # Pinned by commit SHA: this action takes the NDK tag from the tag name, so a
-      # tag would have to contain "r27c" and Google's archive only carries "r27".
-      # The exact revision is passed explicitly through `ndk-version` instead.
+      # Pinned by commit SHA (v1.6.0) so the action itself cannot change under us.
       - name: Install Android NDK
         id: setup-ndk
         uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
         with:
-          ndk-version: ${{ env.NDK_VERSION }}
+          ndk-version: ${{ env.NDK_TAG }}
           add-to-path: "true"
       - name: Export ANDROID_NDK_HOME
         env:
           NDK_PATH: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           echo "ANDROID_NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
-          if [ -f "$NDK_PATH/source.properties" ]; then
-            grep '^Pkg.Revision' "$NDK_PATH/source.properties"
+          actual=$(sed -n 's/^Pkg\\.Revision *= *//p' "$NDK_PATH/source.properties")
+          echo "NDK revision on disk: $actual"
+          if [ "$actual" != "$NDK_REVISION" ]; then
+            echo "::error::Expected NDK $NDK_REVISION, found $actual"
+            exit 1
           fi
 
       # `--locked` here pins cargo-ndk itself; it is unrelated to the project lockfile.
