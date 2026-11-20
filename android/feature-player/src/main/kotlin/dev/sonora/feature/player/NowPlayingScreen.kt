@@ -67,6 +67,7 @@ fun NowPlayingScreen(
     onRetry: () -> Unit = {},
 ) {
     val playback = state.playback
+    val playbackError = playback.error
     val track = playback.track
     val colors = SonoraTheme.colors
 
@@ -169,9 +170,9 @@ fun NowPlayingScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            if (playback.error != null) {
+            if (playbackError != null) {
                 Text(
-                    text = playback.error,
+                    text = playbackError,
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall,
                 )
