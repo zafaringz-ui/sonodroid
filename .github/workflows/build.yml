@@ -48,7 +48,9 @@ jobs:
         run: |
           mkdir -p ../ci-logs
           set -o pipefail
-          cargo fmt --all -- --check 2>&1 | tee ../ci-logs/cargo-fmt.log || {
+          # Scoped: `--all` would format-check the vendored Sonora crates too, and
+          # those are pristine upstream source we must not reformat.
+          cargo fmt -p mobile-core -- --check 2>&1 | tee ../ci-logs/cargo-fmt.log || {
             status=${PIPESTATUS[0]}
             if [ "$status" -eq 0 ]; then status=1; fi
             echo 'Last 100 lines of formatting output:'
@@ -62,7 +64,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cargo fmt --all 2>&1 | tee ../ci-logs/cargo-fmt-apply.log
+          cargo fmt -p mobile-core 2>&1 | tee ../ci-logs/cargo-fmt-apply.log
           git diff --binary -- . > ../ci-logs/rustfmt.patch
 
       - name: Unit tests
@@ -71,7 +73,9 @@ jobs:
         run: |
           mkdir -p ../ci-logs
           set -o pipefail
-          cargo test --locked --workspace --all-targets 2>&1 | tee ../ci-logs/cargo-test.log || {
+          # Scoped: `--workspace` would compile and run 70k lines of vendored code
+          # and its tests, which is not ours to keep green.
+          cargo test --locked -p mobile-core --all-targets 2>&1 | tee ../ci-logs/cargo-test.log || {
             status=${PIPESTATUS[0]}
             if [ "$status" -eq 0 ]; then status=1; fi
             echo 'Last 100 lines of cargo test output:'
@@ -85,7 +89,8 @@ jobs:
         run: |
           mkdir -p ../ci-logs
           set -o pipefail
-          cargo clippy --locked --workspace --all-targets -- -D clippy::all 2>&1 | tee ../ci-logs/cargo-clippy.log || {
+          # Scoped: the vendored crates must not be clippy-linted by our CI.
+          cargo clippy --locked -p mobile-core --all-targets -- -D clippy::all 2>&1 | tee ../ci-logs/cargo-clippy.log || {
             status=${PIPESTATUS[0]}
             if [ "$status" -eq 0 ]; then status=1; fi
             echo 'Last 100 lines of clippy output:'
