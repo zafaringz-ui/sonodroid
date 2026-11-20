@@ -1152,9 +1152,84 @@ the strategic answer given §1e's conclusion that Kotlin should own PoToken mint
 
 ### Status of the gate
 
-- **Answered:** unmodified `music` does not build for Android; the blocker is `rquickjs-sys`
-  missing pregenerated bindings for all three targets.
+- **Answered:** unmodified `music` does not build for Android with the published
+  `rquickjs-sys`; the blocker is its missing pregenerated bindings for all three targets.
 - **Not started:** the trim. This gate deliberately built the untrimmed crate, so nothing in
   `rust/vendor/sonora` was edited and no provider was removed.
-- **Still open:** whether `aws-lc-sys`, `libsqlite3-sys` and `opusic-sys` build for Android.
-  They were never reached. Re-running the gate after the `rquickjs` fix will answer it.
+- **Answered in §12a:** whether `aws-lc-sys`, `libsqlite3-sys` and `opusic-sys` build for
+  Android — yes, all three, once the build can get past `rquickjs`.
+
+---
+
+## 12a. WP-1 fix: `music` cross-compiles for all three ABIs
+
+`music` now cross-compiles for `aarch64-linux-android`, `armv7-linux-androideabi` and
+`x86_64-linux-android`, with the vendored crates unmodified apart from one new dependency
+copy. Evidence: workflow run `44779829727` (`wp1-bindings`), where `abi-aarch64`,
+`abi-x86_64` and `abi-armv7` are all PASS and the committed lockfile passes `--locked`
+(`resolve::ok (cargo metadata --locked)`, `lock-stable::committed lockfile is already
+complete`).
+
+### What the fix is, and why not the recommended option 1
+
+Option 1 above said "enable `rquickjs-sys`'s `bindgen` feature". **That is not possible from
+this repository**, and each reason is a measurement, not an inference:
+
+| Attempt | Result |
+| --- | --- |
+| `--features rquickjs-sys/bindgen` on `music` | Rejected: `error: the package 'music' does not contain this feature`. Cargo only accepts `dep/feature` for a dependency of the *selected* package, and `rquickjs-sys` is transitive (run `44762272947`). |
+| `[patch.crates-io] rquickjs-sys = { path = … }` | Ignored: `rquickjs-core` declares `rquickjs-sys` as a *workspace* dependency, which cargo resolves against the workspace root; the build still failed on `bindings/aarch64-linux-android.rs` (run `44768718187`). |
+| Editing the extracted crate's own `default = ["bindgen"]` | No effect: `default-features = false` on the `rquickjs-core` edge overrides the dependency's default (run `44762958918`). |
+| `[patch]` applied and resolving cleanly, then building | Still no effect for the same reason, and what it "generated" was the 3-line stub the crate writes when the feature is off (run `44776546926`). |
+
+So the fix does not switch the feature on — it removes the switch. `rquickjs-sys` 0.12.2 is
+vendored at `rust/vendor/rquickjs-sys/` (`[patch.crates-io]` in `rust/Cargo.toml`), where
+`bindgen-rs` is a non-optional build dependency, `build.rs` generates unconditionally, and
+`src/lib.rs` includes only `$OUT_DIR/bindings.rs`. `VENDORED.md` next to it records the
+provenance, the three patches, the licensing (MIT throughout) and when the copy can go away.
+
+One more thing the published crate cannot supply: `quickjs/` is a **separate git repository**
+in upstream's `.gitmodules`, so the published `.crate` ships it empty although `build.rs`
+copies 18 files out of it. Those 18 files are materialised in the copy.
+
+### The trap this avoided: `cargo-ndk` does not pass `--target` to bindgen
+
+`cargo-ndk` exports `BINDGEN_EXTRA_CLANG_ARGS_<triple>` as `--sysroot=… -I…` with **no**
+`--target=`, in every released version from 3.5.4 to 4.1.2; the fix (commit `ee7329a`) is on
+`master` only. Without `--target`, clang binds the host layout, so a 64-bit runner would give
+armv7 64-bit `size_t` and the 8-byte `JSValue` union while the C compiled 32-bit. The
+generated layouts differ exactly as the ABI requires, which is why one shared file would have
+been wrong (run `44779829727`, annotation `layouts`):
+
+| ABI | `size_t` | `JSValue` |
+| --- | --- | --- |
+| `aarch64-linux-android` | `::core::ffi::c_ulong` | `#[repr(C)] struct { u: JSValueUnion, tag: i64 }` |
+| `x86_64-linux-android` | `::core::ffi::c_ulong` | same as aarch64 |
+| `armv7-linux-androideabi` | `::core::ffi::c_uint` | `u64` (NaN boxing, no union) |
+
+Every Android build must therefore set `BINDGEN_EXTRA_CLANG_ARGS_<triple>` itself, which is
+what `.github/workflows/wp1-bindings.yml` does and what the shipped Android build has to do
+too — otherwise it compiles and reads the wrong fields on 32-bit.
+
+### §1c's open question, answered
+
+`aws-lc-sys`, `aws-lc-rs`, `libsqlite3-sys`, `opusic-sys` and `rquickjs-sys` **all produced
+build artifacts** in run `44779829727` (`built` annotations). The earlier gate could not
+answer this because cargo stops at the first hard error and `rquickjs-sys` failed first; the
+`aws-lc-sys` failure predicted in §1c did not happen.
+
+### Cost
+
+| | Before | After |
+| --- | --- | --- |
+| New packages in `rust/Cargo.lock` | — | 7: `bindgen 0.72.1`, `cexpr 0.6.0`, `clang-sys 1.9.1`, `itertools 0.13.0`, `libloading 0.8.9`, `prettyplease 0.2.37`, `shlex 1.3.0` (561 packages total) |
+| Repository size | — | ~4 MB, of which ~2.7 MB is `quickjs.c` and the headers `build.rs` compiles |
+| Build time | — | one bindgen run per target; `libclang` must be present on any machine that builds Android, and `libclang-dev` is already installed in the gate and native workflows |
+
+### What is still not done
+
+- The **trim** has not started, and this was the point of the gate: it now compiles, so the
+  trim can be measured instead of guessed.
+- `main`'s "Android native" job still builds only `mobile-core`, which does not depend on
+  `music`, so it is unaffected by any of this. Wiring `music` into the shipped core is a
+  separate task and the place where `BINDGEN_EXTRA_CLANG_ARGS` has to be set for real.
