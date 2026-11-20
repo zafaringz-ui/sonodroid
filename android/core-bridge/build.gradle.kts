@@ -33,10 +33,19 @@ android {
     // produced by scripts/build-rust.sh (jniLibs/<abi>/libsonora_core.so).
     // The generated package path is <out-dir>/dev/sonora/core/ffi, so the source
     // root must be the out-dir itself, not a "kotlin" subdirectory.
-    sourceSets["main"].java.srcDir("src/generated")
-    sourceSets["main"].jniLibs.srcDir("src/main/jniLibs")
+    //
+    // Both roots are conditional: generated bindings reference JNA, which is only
+    // on the classpath for `-Psonora.rust=true`, so compiling them into a default
+    // build would fail to resolve it.
+    //
+    // jniLibs deliberately lives outside src/main/: that directory is AGP's
+    // *default* native-library location, so the libraries are packaged whether or
+    // not this block runs, and a stale build would land in the demo APK. Keeping
+    // them in src/jniLibs makes the gate below meaningful.
     if (rustBinding) {
+        sourceSets["main"].java.srcDir("src/generated")
         sourceSets["main"].kotlin.srcDir("src/rust/kotlin")
+        sourceSets["main"].jniLibs.srcDir("src/jniLibs")
     }
 }
 
@@ -44,10 +53,15 @@ dependencies {
     api(libs.kotlinx.coroutines.core)
     api(libs.kotlinx.coroutines.android)
 
-    // Only the native build carries generated UniFFI Kotlin. JNA backs UniFFI's
-    // cleaner below API 34; desugar_jdk_libs provides java.lang.ref.Cleaner on API 26+.
+    // Only the native build carries generated UniFFI Kotlin. JNA carries *every*
+    // native call the generated bindings make, not just the object cleaner, and it
+    // must be the `@aar` artifact: the plain jar contains only Java classes, while
+    // the aar also ships libjnidispatch.so per ABI. With the jar, JNA fails to find
+    // its native dispatcher on a device and every call into the core throws (the
+    // app then falls back with NATIVE_LOAD_FAILED). desugar_jdk_libs provides
+    // java.lang.ref.Cleaner on API 26+.
     if (rustBinding) {
-        implementation(libs.jna)
+        implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
         coreLibraryDesugaring(libs.desugar.jdk.libs)
     }
 

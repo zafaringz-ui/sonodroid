@@ -54,7 +54,8 @@ coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref 
 androidx-palette = { group = "androidx.palette", name = "palette-ktx", version.ref = "palette" }
 androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
 
-jna = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
+# net.java.dev.jna:jna is consumed with the @aar suffix (see core-bridge), which a
+# catalog library entry cannot express, so only the version lives here.
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxJunit" }

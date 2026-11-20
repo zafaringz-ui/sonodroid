@@ -64,14 +64,19 @@ formatting/tests/Clippy; its detailed error logs have not been supplied.
   No Gradle build or unit test ran.
 - **Implemented but untested — Rust core and tests:** running
   `cd rust && cargo test --workspace --all-targets` failed: `cargo: command not found`.
-- **Implemented but untested — Android ABI builds:** running
-  `cd rust && cargo ndk --target arm64-v8a --target armeabi-v7a --target x86_64 --output-dir ../android/core-bridge/src/main/jniLibs build --release -p mobile-core`
-  failed: `cargo: command not found`. No ABI was built.
-- **Implemented but untested — UniFFI adapter:** `./scripts/gen-bindings.sh` failed
-  because `android/core-bridge/src/main/jniLibs/arm64-v8a/libsonora_core.so` does not
-  exist. Bindings have not been generated and the adapter has not been reconciled.
-- **Implemented but untested — emulator launch:** `adb devices` failed with
-  `adb: command not found`. No emulator launch has been attempted.
+- **Verified in CI — Android ABI builds:** the `Android native` job builds all three
+  ABIs (arm64-v8a, armeabi-v7a, x86_64) with NDK r27c and cargo-ndk 3.5.4. This
+  sandbox has no cargo, so the local build has still not been run here.
+- **Verified in CI — UniFFI adapter:** the bindings are generated in library mode and
+  the adapter compiles against them, including a check that its expected
+  declarations exist. Building the `.so` requires `CARGO_PROFILE_RELEASE_STRIP=none`
+  and `cargo ndk --no-strip`, or library mode finds zero components and exits 0
+  without writing anything; `scripts/build-rust.sh` and `scripts/gen-bindings.sh`
+  now do this and fail loudly instead.
+- **Not verified anywhere — loading on a device:** no emulator or device has run the
+  Rust-backed build, so the `.so` load itself (and JNA's dispatch to it) is unproven.
+  `adb devices` also fails here with `adb: command not found`, so no launch has been
+  attempted.
 - **Stubbed/simulated — demo mode:** catalogue, playback clock, quality policy and
   demo accounts are fixtures, not live provider integration or audio output.
 - **Stubbed/simulated — PoToken, provider auth and audio sink:** no production
@@ -88,9 +93,9 @@ cd android
 ./gradlew :app:assembleDebug testDebugUnitTest --stacktrace
 cd ../rust
 cargo test --workspace --all-targets
-cargo ndk --target arm64-v8a --target armeabi-v7a --target x86_64 --output-dir ../android/core-bridge/src/main/jniLibs build --release -p mobile-core
 cd ..
-./scripts/gen-bindings.sh
+./scripts/build-rust.sh    # sets CARGO_PROFILE_RELEASE_STRIP=none and --no-strip
+./scripts/gen-bindings.sh  # generates from target/, fails if nothing is written
 cd android
 ./gradlew :app:assembleDebug testDebugUnitTest -Psonora.rust=true --stacktrace
 adb devices
