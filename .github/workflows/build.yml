@@ -238,7 +238,11 @@ jobs:
               found=1
             done
           done
-          [ "$found" -eq 0 ] && echo "no cached net.java.dev.jna entry to drop"
+          # An `[ ... ] && echo` here would be the script's last command and its non-zero
+          # exit would fail the step under `set -e`.
+          if [ "$found" -eq 0 ]; then
+            echo "no cached net.java.dev.jna entry to drop"
+          fi
 
       - uses: dtolnay/rust-toolchain@stable
 
