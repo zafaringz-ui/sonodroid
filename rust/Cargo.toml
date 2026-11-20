@@ -127,6 +127,13 @@ reqwest = { version = "0.13", default-features = false, features = [
     "rustls-no-provider",
 ] }
 ring = "0.17"
+# Upstream declares rodio here plus a [patch.crates-io] redirect to the same git rev.
+# Both are needed: `music` inherits through `workspace = true`, and the patch is what
+# makes the git rev win over the published crate.
+rodio = { version = "0.22", default-features = false, features = [
+    "playback",
+    "experimental",
+] }
 roxmltree = "0.21"
 rtrb = "0.4"
 rusqlite = { version = "0.43", features = ["bundled"] }
