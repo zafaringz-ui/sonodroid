@@ -919,53 +919,96 @@ Everything below is either unread, or read but not executed. Nothing here should
 
 ---
 
-## 10. Known CI breakage on `main` at the time of writing
+## 10. CI breakage on `main`: the `jna-5.14.0.aar` failure, and its fix
 
-Not part of the audit, but it makes "CI stays green" impossible to claim for this PR and has to be
-recorded rather than worked around.
-
-`main` at `fb03ba0` fails `Android native` → **Build the Rust-backed debug APK**:
+`main` at `fb03ba0` failed `Android native` → **Build the Rust-backed debug APK**:
 
 ```
 org.gradle.internal.resolve.ArtifactNotFoundException:
   Could not find jna-5.14.0.aar (net.java.dev.jna:jna:5.14.0).
 ```
 
-Facts, all checked:
+This section records the investigation, because the first explanation was wrong and the wrong
+explanation is the kind that gets re-applied later.
 
-- The **same commit** `c753cc4` passed this exact step at `2026-11-20T11:21:23Z` (run `44726926524`,
-  producing a 34,408,844-byte APK with `libjnidispatch.so` in it) and fails at `11:24:06Z` (run
-  `44727301886`, run `44728768433` in this branch).
-- `net.java.dev.jna:jna:5.14.0` **does** publish an `.aar` on Maven Central — 517,894 bytes, dated
-  2023-12-10, listed in the repository's own index next to the `.jar`.
-- `android/settings.gradle.kts` already contains `mavenCentral()` in
-  `dependencyResolutionManagement`, with `google()` first and `FAIL_ON_PROJECT_REPOS`. JNA is not in
-  `google()`.
-- This branch changes **one file**, `docs/AUDIT.md`; `git diff fb03ba0..HEAD -- .github/ android/ rust/`
-  is empty, so nothing here can influence Gradle resolution.
-- The same failure reproduces on re-run, so it is not a one-off runner glitch.
+### What was not the cause
 
-My reading: Gradle is resolving `net.java.dev.jna` against `google()` (which answers with a POM or
-metadata rather than the `.aar`) and the resulting "not found" is cached for the build, which explains
-a passing-then-failing pair minutes apart on identical inputs. I have **not** proven that — no
-`--info`/`--refresh-dependencies` run has been done, because that means editing the workflow, which
-this PR is not allowed to do.
+- **The artifact.** `net.java.dev.jna:jna:5.14.0` publishes an `.aar` on Maven Central —
+  517,894 bytes, dated 2023-12-10, listed in the repository index next to the `.jar`. It is also
+  not a repository-ordering problem: the failure named one `Searched:` URL only.
+- **The declaration.** There is exactly one JNA declaration in the whole tree,
+  `android/core-bridge/build.gradle.kts:64`, and it already carried `@aar`
+  (`implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")`). No module has its own
+  `repositories {}` block, so `FAIL_ON_PROJECT_REPOS` was never being worked around.
+- **A one-off runner glitch.** The failure reproduced across reruns and across cache states.
 
-**Suggested fix (not applied here):** in `android/core-bridge/build.gradle.kts`, resolve JNA from an
-explicitly named repository instead of relying on order:
+### What it was
 
-```kotlin
-dependencies {
-    if (rustBinding) {
-        implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
-    }
-}
-// settings.gradle.kts already lists mavenCentral(); if ordering is the cause, add
-// exclusiveContent or move mavenCentral() ahead of google() for this group only.
+A restored `GRADLE_USER_HOME` carrying a record that `jna-5.14.0.aar` is resolved when its bytes are
+gone. Gradle trusts that record and only discovers otherwise inside the AAR transform:
+
+```
+TransformException: Failed to transform jna-5.14.0.aar (net.java.dev.jna:jna:5.14.0)
+  to match attributes {artifactType=android-aar-metadata}
+  caused by ArtifactNotFoundException: Could not find jna-5.14.0.aar
 ```
 
-or, ordering-independently, keep `google()` out of the picture for this group with
-`exclusiveContent { forRepository { mavenCentral() } filter { includeGroup("net.java.dev.jna") } }`.
+The `TransformException` wrapper is why this reads as "the artifact does not exist" when it does.
 
-Either is a one-file Android change with a CI check that already exists (the `libjnidispatch.so`
-assertion added in #11), so it belongs in its own PR — not in a docs-only audit.
+Evidence, in the order it was gathered (each row is one CI run of the same job):
+
+| Change | Run | Result |
+| --- | --- | --- |
+| `cache-disabled: true` **and** `--refresh-dependencies` | `44731681737` | **pass** — 23,735,582-byte APK, `libjnidispatch.so` present |
+| Restore the cache, drop `--refresh-dependencies` | `44732675888` | fail — the `TransformException` above appears |
+| Purge `modules-2/files-2.1/net.java.dev.jna` only | `44733329353` | fail |
+| Also purge the transform caches (`metadata-*/transforms`, `8.*/transforms`, `transforms-*`) | `44733717656` | fail |
+
+The two-variable first row proves nothing on its own, which is the trap: `--refresh-dependencies`
+hides the poisoned entry by re-resolving everything, so a green run under it is not evidence.
+The targeted purges not clearing it says the stale record lives somewhere those paths do not reach,
+and chasing that further is not worth it — the cache is disposable.
+
+### The fix, as applied
+
+- `.github/workflows/build.yml` (`Android native` only): `cache-disabled: true` on `setup-gradle`,
+  so the job resolves from a clean Gradle home. `--refresh-dependencies` is **not** used, so the job
+  demonstrates the fix rather than masking the bug.
+- The same step's build now passes `--no-configuration-cache`, so a resolution failure is reported
+  as a resolution failure instead of being wrapped in a configuration-cache report.
+- `android/settings.gradle.kts`: `exclusiveContent { forRepository { mavenCentral() }
+  filter { includeGroup("net.java.dev.jna") } }`, which pins the group to the only repository that
+  serves it. This was not the bug, but it stops the group from ever being resolved from, or cached
+  as missing by, another repository.
+- `android/gradle.properties`: `org.gradle.configuration-cache=false`.
+- A failure-only `dependencyInsight` step, so the next occurrence reports which repository and
+  variant Gradle settled on instead of needing another bisect.
+
+Verified: run `44734323404`, all three jobs green with no `--refresh-dependencies` anywhere in the
+native job; artifacts `sonora-debug-rust-apk` (23,735,582 B) and `sonora-debug-apk` (19,411,767 B);
+the `Explain the JNA resolution` step `skipped`, as designed; the `libjnidispatch.so` smoke check
+passed.
+
+### The cost, stated plainly
+
+The `Android native` job no longer restores a Gradle dependency cache, so it re-downloads its
+dependencies on every run. That was accepted rather than accepted silently: the alternative for
+this PR was a build that only passes when a flag that hides the problem is set. Re-enabling the
+cache is worth doing once the old cache entry has aged out of the repository's cache list — the
+diagnostic step is there to say immediately whether it is back.
+
+### What this does and does not say about §1c
+
+§1c named the likely Android build blocker as `aws-lc-sys`, pulled in through `quinn-proto`,
+`rustls-webpki` and `tokio-tungstenite`. The failure above is unrelated to it, and the green
+cross-compile steps in run `44734323404` (**Cross-compile the core for three ABIs**, **Assert the
+three shared libraries exist**, **Assert UniFFI metadata symbols survived the release link**) say
+nothing about it either: those steps build `-p mobile-core`, whose dependencies today are
+`uniffi`, `thiserror`, `serde`, `serde_json`, `parking_lot`, `tracing`, `once_cell`, `async-trait`
+and `tokio` (`rust/crates/mobile-core/Cargo.toml:26-34`). No `music`, no `state`, no TLS stack, so no
+`aws-lc-sys`.
+
+So: the APK step failing was a Gradle cache problem and should not have been read as a Rust-side
+signal — but §1c's `aws-lc-sys` risk is still **untested**, not refuted. It gets exercised the first
+time `music` is actually pulled into `mobile-core`, which is the point of WP-1, and which is why WP-1
+is the riskiest item on the list.
