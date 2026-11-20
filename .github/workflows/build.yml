@@ -302,6 +302,11 @@ jobs:
           echo
           echo "Shared library sizes:"
           find "$jni" -name 'libsonora_core.so' -exec ls -lh {} \;
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            so="$jni/$abi/libsonora_core.so"
+            kb=$(( $(stat -c%s "$so") / 1024 ))
+            echo "::warning::libsonora_core.so $abi = ${kb} KiB ($(stat -c%s "$so") bytes)"
+          done
 
       # Library-mode bindgen reads `uniffi_*` metadata from the ELF static symbol
       # table. If the release profile's LTO drops those symbols, the generator
@@ -498,7 +503,10 @@ jobs:
                 exit 1
               fi
               echo "OK  lib/$abi/libsonora_core.so"
+              entry=$(unzip -l "$apk" | grep "lib/$abi/libsonora_core.so" | awk '{print $1}')
+              echo "::warning::packaged lib/$abi/libsonora_core.so = ${entry} bytes"
             done
+            echo "::warning::APK total = $(stat -c%s "$apk") bytes"
           else
             echo "::error::unzip is unavailable; cannot inspect the APK"
             exit 1
