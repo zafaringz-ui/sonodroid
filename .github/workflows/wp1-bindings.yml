@@ -244,9 +244,10 @@ jobs:
       - name: Which native crates built
         if: always()
         run: |
-          for pair in aws-lc-sys:aws_lc_sys aws-lc-rs:aws_lc_rs ring:ring \
-                      libsqlite3-sys:libsqlite3_sys opusic-sys:opusic_sys \
-                      rquickjs-sys:rquickjs_sys quickjs-sys:quickjs; do
+          # Directory names use the package name verbatim, hyphens included.
+          for pair in aws-lc-sys:aws-lc-sys aws-lc-rs:aws-lc-rs ring:ring \
+                      libsqlite3-sys:libsqlite3-sys opusic-sys:opusic-sys \
+                      rquickjs-sys:rquickjs-sys; do
             name=${pair%%:*}; dir=${pair##*:}
             hit=$(find rust/target rust/target-armv7 -type d -name "${dir}-*" 2>/dev/null | head -n 1)
             if [ -n "$hit" ]; then echo "::notice title=built::${name}: artifacts present"
@@ -263,14 +264,32 @@ jobs:
             [ -f "$f" ] || continue
             t=$(basename "$f" .rs)
             size=$(stat -c%s "$f")
-            line=$(grep -m1 "^pub type size_t" "$f" | tr -d '\r')
-            nan=$(grep -c "define JS_NAN_BOXING 1" "$f")
-            jsval=$(grep -m1 "^pub type JSValue = " "$f")
-            union=$(grep -c "^pub union JSValueUnion" "$f")
+            # `|| true` throughout: `run:` is bash -e, and a grep that finds nothing
+            # returns 1, which killed this step in run 44777481631 before it printed
+            # anything.
+            line=$(grep -m1 "^pub type size_t" "$f" | tr -d '\r' || true)
+            nan=$(grep -c "define JS_NAN_BOXING 1" "$f" || true)
+            jsval=$(grep -m1 "^pub type JSValue = " "$f" || true)
+            union=$(grep -c "^pub union JSValueUnion" "$f" || true)
             out="${out}${t} (${size}B): size_t=[${line}] nan_boxing=${nan} jsvalue_union=${union} ${jsval}%0A"
           done
           [ -n "$out" ] || out="no bindings dumped"
           echo "::notice title=layouts::$out"
+
+      # The lockfile cannot be resolved offline, and artifacts cannot be downloaded from
+      # the authoring environment, so the diff is published as annotations. Three chunks of
+      # at most 20 KB each stay well inside the 64 KB annotation limit.
+      - name: Publish the lockfile diff
+        if: always()
+        working-directory: rust
+        run: |
+          git diff Cargo.lock > /tmp/lock.diff || true
+          echo "::notice title=lock-diff-size::$(wc -l < /tmp/lock.diff) lines, $(wc -c < /tmp/lock.diff) bytes"
+          for n in 1 2 3; do
+            from=$(( (n - 1) * 20 + 1 ))
+            chunk=$(sed -n "${from},$(( from + 19999 ))p" /tmp/lock.diff | tr '\n' '%0A')
+            [ -n "$chunk" ] && echo "::warning title=lock-diff-$n::$chunk"
+          done
 
       - name: Verdict
         if: always()
