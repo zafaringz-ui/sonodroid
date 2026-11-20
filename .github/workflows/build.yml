@@ -266,9 +266,12 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p ../ci-logs
+          # --no-strip: cargo-ndk 3.x otherwise runs a host `strip` over the copied
+          # libraries, dropping the static symbol table UniFFI metadata lives in.
           cargo ndk \
             -t arm64-v8a -t armeabi-v7a -t x86_64 \
             -o ../android/core-bridge/src/main/jniLibs \
+            --no-strip \
             build --release --locked -p mobile-core 2>&1 | tee ../ci-logs/cargo-ndk.log
 
       - name: Assert the three shared libraries exist
@@ -301,6 +304,8 @@ jobs:
         run: |
           set -euo pipefail
           so=android/core-bridge/src/main/jniLibs/arm64-v8a/libsonora_core.so
+          echo "---- cargo target output (used for bindgen) ----"
+          readelf -S rust/target/aarch64-linux-android/release/libsonora_core.so | grep -E 'symtab|dynsym' || true
           echo "---- static symtab, first 15 uniffi-ish rows ----"
           readelf -sW "$so" | grep -i 'uniffi\|\.symtab' | head -n 15 || echo "(no matches)"
           echo "---- section headers ----"
@@ -334,7 +339,15 @@ jobs:
         working-directory: rust
         run: |
           set -o pipefail
-          so=../android/core-bridge/src/main/jniLibs/arm64-v8a/libsonora_core.so
+          # Generate from cargo's own output: cargo-ndk's copy in jniLibs is
+          # post-processed even with --no-strip in some versions.
+          so=target/aarch64-linux-android/release/libsonora_core.so
+          if [ ! -f "$so" ]; then
+            echo "::error::Expected the cargo output at rust/$so"
+            ls -la target/aarch64-linux-android/release/ | head -n 20
+            exit 1
+          fi
+          echo "generating from $so ($(stat -c%s "$so") bytes)"
           out=../android/core-bridge/src/generated
           mkdir -p ../ci-logs
           rustup toolchain install stable --profile minimal --no-self-update >/dev/null 2>&1 || true
