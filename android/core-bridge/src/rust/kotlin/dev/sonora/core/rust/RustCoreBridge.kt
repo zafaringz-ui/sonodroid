@@ -6,7 +6,7 @@ import dev.sonora.core.ffi.AccountStatus
 import dev.sonora.core.ffi.Album
 import dev.sonora.core.ffi.Artist
 import dev.sonora.core.ffi.CoreConfig
-import dev.sonora.core.ffi.CoreError
+import dev.sonora.core.ffi.CoreException
 import dev.sonora.core.ffi.CoreEvent
 import dev.sonora.core.ffi.CoreListener
 import dev.sonora.core.ffi.HomeItem
@@ -70,9 +70,11 @@ import kotlinx.coroutines.launch
  *    is a legal implementation;
  *  * records are `data class` with `var` fields by default;
  *  * flat enums are Kotlin `enum class` with SHOUTY_SNAKE variants;
- *  * `#[uniffi(flat_error)]` generates `sealed class CoreError(message: String)` with
- *    `CoreError.NotImplemented(message)`-style subclasses, not `Exception` subclasses
- *    of the same name;
+ *  * `#[uniffi(flat_error)]` on `CoreError` generates `sealed class CoreException`
+ *    with `CoreException.NotImplemented(message)`-style subclasses: the Kotlin
+ *    backend renames any type used as an error by replacing a trailing `Error`
+ *    with `Exception` (KotlinCodeOracle::convert_error_suffix), so the Kotlin
+ *    name is not the Rust name;
  *  * async exports become `suspend fun` that throw `CoreError`. Kotlin does not
  *    enforce checked exceptions, but the ViewModels already wrap these calls in
  *    `runCatching`; `@Throws` is kept as documentation for the JVM signature.
@@ -140,34 +142,34 @@ class UniffiCoreClient(
 
     // ---- catalogue ----------------------------------------------------------
 
-    @Throws(CoreError::class)
+    @Throws(CoreException::class)
     override suspend fun home(provider: Provider): HomeFeed =
         core.home(provider.toFfi()).toModel()
 
-    @Throws(CoreError::class)
+    @Throws(CoreException::class)
     override suspend fun library(provider: Provider): LibraryModel =
         core.library(provider.toFfi()).toModel().also { snapshot ->
             _downloads.value = snapshot.downloads
         }
 
-    @Throws(CoreError::class)
+    @Throws(CoreException::class)
     override suspend fun search(
         provider: Provider,
         query: String,
         filter: SearchFilterModel,
     ): SearchResults = core.search(provider.toFfi(), query, filter.toFfi()).toModel()
 
-    @Throws(CoreError::class)
+    @Throws(CoreException::class)
     override suspend fun album(provider: Provider, albumId: String): AlbumModel =
         core.album(provider.toFfi(), albumId).toModel()
 
-    @Throws(CoreError::class)
+    @Throws(CoreException::class)
     override suspend fun playlist(provider: Provider, playlistId: String): PlaylistDetail {
         val detail = core.playlist(provider.toFfi(), playlistId)
         return PlaylistDetail(detail.playlist.toModel(), detail.tracks.map(Track::toModel))
     }
 
-    @Throws(CoreError::class)
+    @Throws(CoreException::class)
     override suspend fun lyrics(trackId: String): Lyrics {
         val lyrics = core.lyrics(trackId)
         return Lyrics(
@@ -191,12 +193,12 @@ class UniffiCoreClient(
         // Validation of the stored ARL/cookies happens inside the Rust provider
         // client once Phase 3/4 land; today this marks the session.
         //
-        // `slug` only exists on the Rust `Provider` enum, so it must be called on
-        // the FFI value; `model.Provider.slug` is a different, unrelated property.
-        val ffiProvider = provider.toFfi()
+        // `accountId` uses the *model* Provider's slug: the Rust enum's `slug()`
+        // is on a plain impl block, which UniFFI does not export, so the FFI
+        // Provider has no such method.
         core.markSignedIn(
-            ffiProvider,
-            accountId = ffiProvider.slug(),
+            provider.toFfi(),
+            accountId = provider.slug,
             displayName = accountLabel,
             plan = plan.toFfi(),
         )
@@ -217,7 +219,7 @@ class UniffiCoreClient(
     override fun qualityLadder(provider: Provider): List<QualityModel> =
         core.qualityLadder(provider.toFfi()).map(StreamQuality::toModel)
 
-    @Throws(CoreError::class)
+    @Throws(CoreException::class)
     override fun resolvedQuality(provider: Provider, purpose: StreamPurpose): QualityModel? =
         runCatching {
             core.resolvedQuality(provider.toFfi(), purpose.toFfi()).toModel()

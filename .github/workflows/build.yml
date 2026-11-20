@@ -442,7 +442,7 @@ jobs:
             "open class SonoraCore" \
             "interface CoreListener" \
             "interface TokenMinter" \
-            "sealed class CoreError"; do
+            "sealed class CoreException"; do
             if grep -q "$decl" "$f"; then
               echo "OK   $decl"
             else
