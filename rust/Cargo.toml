@@ -1,24 +1,229 @@
 [workspace]
 resolver = "2"
-members = ["crates/mobile-core"]
+members = [
+    "crates/mobile-core",
+    # Vendored from Sonora v0.50.2 (docs: rust/vendor/UPSTREAM.md). Copied pristine;
+    # see that file for provenance. `storage` and `widevine` are here because `music`
+    # depends on them.
+    "vendor/sonora/crates/music",
+    "vendor/sonora/crates/storage",
+    "vendor/sonora/crates/widevine",
+]
 
 [workspace.package]
-version = "0.1.0"
+# 0.50.2 because the vendored crates inherit `version.workspace = true` and must
+# report upstream's version. mobile-core deliberately does NOT inherit it any more:
+# it pins version = "0.1.0" in its own manifest, so its version() API and the UniFFI
+# metadata keep reporting 0.1.0.
+version = "0.50.2"
 edition = "2024"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/zafaringz-ui/sonodroid"
-rust-version = "1.85"
+# Matches rust/rust-toolchain.toml, which pins the compiler CI uses. Raising one
+# without the other makes a local build disagree with CI.
+rust-version = "1.98"
+
+[workspace.lints.clippy]
+# Copied from upstream c0b501c. The vendored crates declare `[lints] workspace = true`,
+# so this section has to exist for them to build at all. mobile-core does NOT inherit
+# it: mobile-core has no [lints] section, so before this it had the default set, and
+# giving it three arbitrary warn-level lints would change what `cargo clippy` reports
+# for our own code. `cargo clippy -- -D clippy::all` in the Rust core job is unaffected
+# either way, because these are individual lints rather than the `clippy::all` group.
+redundant_clone = "warn"
+needless_collect = "warn"
+dbg_macro = "warn"
+empty_drop = "warn"
+cloned_instead_of_copied = "warn"
+flat_map_option = "warn"
+inefficient_to_string = "warn"
+set_contains_or_insert = "warn"
+branches_sharing_code = "warn"
+collection_is_never_read = "warn"
+large_stack_frames = "warn"
+or_fun_call = "warn"
+large_types_passed_by_value = "warn"
 
 [workspace.dependencies]
-uniffi = "0.28.3"
-thiserror = "2.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-parking_lot = "0.12"
-tracing = "0.1"
-once_cell = "1.20"
+# One table, alphabetically sorted. Names the vendored crates inherit use upstream's
+# exact text from c0b501c, so our build resolves the same graph docs/AUDIT.md analysed.
+# Four names are shared with mobile-core (async-trait, serde, serde_json, tokio): those
+# carry upstream's exact entry too, because Cargo unifies features across the workspace
+# anyway, so writing our narrower version here would change nothing except obscure what
+# the vendored crates actually ask for. The effect on mobile-core is recorded in the PR:
+# serde gains "rc", serde_json gains "raw_value", tokio's requirement moves 1.42 -> 1.54
+# and gains net/io-util/macros/process (the lock already pinned tokio 1.54.1, so no
+# version actually changes on mobile-core's build).
+alsa = "0.11"
+anyhow = "1.0"
+ardftsrc = "0.4.4"
 async-trait = "0.1"
-tokio = { version = "1.42", features = ["rt-multi-thread", "time", "sync"] }
+base64 = "0.23"
+blowfish = "0.10"
+bytes = "1"
+cbc = "0.2"
+cc = "1"
+cpal = "0.18"
+deunicode = "1.6"
+dirs = "7"
+env_logger = "0.11"
+fastrand = "2.5"
+flate2 = "1"
+futures = "0.3"
+gethostname = "1.1"
+http = "1.5"
+image = { version = "0.25", default-features = false, features = [
+    "jpeg",
+    "png",
+    "webp",
+] }
+jiff = { version = "0.2", default-features = false, features = [
+    "std",
+    "tz-system",
+    "tzdb-bundle-platform",
+    "tzdb-zoneinfo",
+] }
+kakasi = "0.1"
+libc = "0.2"
+librespot-core = { version = "0.8.0", default-features = false, features = [
+    "rustls-tls-native-roots",
+] }
+librespot-playback = { version = "0.8.0", default-features = false, features = [
+    "rustls-tls-native-roots",
+] }
+librespot-protocol = "0.8.0"
+lofty = "0.25"
+log = "0.4"
+md-5 = "0.11"
+oauth2 = "5.0"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSAccessibility",
+    "NSApplication",
+    "NSMenu",
+    "NSMenuItem",
+    "NSResponder",
+    "NSRunningApplication",
+    "NSStatusItem",
+    "NSWorkspace",
+] }
+objc2-core-audio = "0.3"
+objc2-core-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "CFString",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+] }
+once_cell = "1.20"
+open = "5.4"
+opensubsonic = "0.7"
+parking_lot = "0.12"
+percent-encoding = "2.3"
+protobuf = "3"
+pulseaudio = "0.3.2"
+reqwest = { version = "0.13", default-features = false, features = [
+    "blocking",
+    "form",
+    "json",
+    "query",
+    "rustls-no-provider",
+] }
+ring = "0.17"
+# Upstream declares rodio here plus a [patch.crates-io] redirect to the same git rev.
+# Both are needed: `music` inherits through `workspace = true`, and the patch is what
+# makes the git rev win over the published crate.
+rodio = { version = "0.22", default-features = false, features = [
+    "playback",
+    "experimental",
+] }
+roxmltree = "0.21"
+rtrb = "0.4"
+rusqlite = { version = "0.43", features = ["bundled"] }
+# Pinned exactly: a young crate, and the decoder every HE-AAC stream goes through.
+rustfft = "6.4"
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+] }
+rusty_aac = { version = "=1.1.2", default-features = false }
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde-saphyr = { version = "2.1", default-features = false, features = [
+    "deserialize",
+] }
+serde_json = { version = "1.0", features = ["raw_value"] }
+sha1 = "0.11"
+sha2 = "0.11"
+smallvec = { version = "1.16", features = ["union"] }
+storage = { path = "vendor/sonora/crates/storage" }
+symphonia = { version = "0.5.5", default-features = false, features = [
+    "aac",
+    "mkv",
+    "ogg",
+    "isomp4",
+] }
+tempfile = "3.27"
+thiserror = "2.0"
+tokio = { version = "1.54", features = [
+    "rt-multi-thread",
+    "net",
+    "io-util",
+    "macros",
+    "process",
+    "sync",
+    "time",
+] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = [
+    "connect",
+    "rustls-tls-native-roots",
+] }
+tracing = "0.1"
+uniffi = "0.28.3"
+widevine = { path = "vendor/sonora/crates/widevine" }
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Com",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_UI_Controls",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Power",
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+ytmusic = { git = "https://github.com/sonorahq/ytmusic-rs", rev = "99f7d14" }
+
+[patch.crates-io]
+# `music` asks for rodio's `symphonia-libopus` feature (crates/music/Cargo.toml:51),
+# which published rodio 0.22.2 does not have: the feature was added upstream after
+# the 0.22.2 release. Without this patch resolution fails outright with
+# "feature \`symphonia-libopus\` does not exist". The rev is upstream's.
+rodio = { git = "https://github.com/RustAudio/rodio", rev = "880aaba54b00aead53651ed1ccbdb672d1375a95" }
+
+# Upstream patches all six librespot crates to its own fork of librespot. Copied
+# whole rather than only the three `music` names directly: the other three are pulled
+# in transitively (librespot-playback -> librespot-audio, librespot-metadata;
+# librespot-core -> librespot-oauth), and patching some but not others would leave a
+# mixed graph of forked and stock crates that share the same `librespot-protocol`
+# types. The fork carries behaviour `music` may rely on, e.g. "core: keep the modes of
+# a set_options command" and the hyper-http-proxy/rustls 0.23 unification.
+# These six become dead weight once Spotify is gated out of `music` for Release 1;
+# drop them in the same commit that removes the Spotify provider.
+librespot-audio = { git = "https://github.com/sonorahq/librespot", rev = "c3bbdf7faca8b6e36a9fdc6ba3e8b8923e89b893" }
+librespot-core = { git = "https://github.com/sonorahq/librespot", rev = "c3bbdf7faca8b6e36a9fdc6ba3e8b8923e89b893" }
+librespot-metadata = { git = "https://github.com/sonorahq/librespot", rev = "c3bbdf7faca8b6e36a9fdc6ba3e8b8923e89b893" }
+librespot-oauth = { git = "https://github.com/sonorahq/librespot", rev = "c3bbdf7faca8b6e36a9fdc6ba3e8b8923e89b893" }
+librespot-playback = { git = "https://github.com/sonorahq/librespot", rev = "c3bbdf7faca8b6e36a9fdc6ba3e8b8923e89b893" }
+librespot-protocol = { git = "https://github.com/sonorahq/librespot", rev = "c3bbdf7faca8b6e36a9fdc6ba3e8b8923e89b893" }
 
 # Release profile from the plan: small, fast, no panic unwinding across the FFI.
 #
