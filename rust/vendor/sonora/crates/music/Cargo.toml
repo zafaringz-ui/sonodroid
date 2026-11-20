@@ -10,6 +10,11 @@ license.workspace = true
 widevine = ["widevine/cdm"]
 
 [dependencies]
+# Trimmed for Release 1: the Spotify, Apple Music, Tidal, Jellyfin and Subsonic providers,
+# their login flows and the Soloist/librespot playback engine are removed together with the
+# crates only they used (librespot-*, oauth2, opensubsonic, protobuf, tokio-tungstenite,
+# gethostname). `widevine` stays because it is a workspace member; the `widevine` feature is
+# off by default and only the Apple provider ever used it. See docs/AUDIT.md §13.
 anyhow.workspace = true
 ardftsrc.workspace = true
 async-trait.workspace = true
@@ -22,24 +27,17 @@ sha1.workspace = true
 flate2.workspace = true
 cpal.workspace = true
 futures.workspace = true
-gethostname.workspace = true
 deunicode.workspace = true
 dirs.workspace = true
 http.workspace = true
 image.workspace = true
 jiff.workspace = true
-librespot-core.workspace = true
-librespot-playback.workspace = true
-librespot-protocol.workspace = true
 lofty.workspace = true
 kakasi.workspace = true
 log.workspace = true
 md-5.workspace = true
-oauth2.workspace = true
 open.workspace = true
-opensubsonic.workspace = true
 percent-encoding.workspace = true
-protobuf.workspace = true
 reqwest.workspace = true
 ring.workspace = true
 roxmltree.workspace = true
@@ -66,7 +64,6 @@ storage.workspace = true
 symphonia.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
-tokio-tungstenite.workspace = true
 widevine.workspace = true
 ytmusic.workspace = true
 

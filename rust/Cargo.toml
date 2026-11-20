@@ -70,7 +70,6 @@ env_logger = "0.11"
 fastrand = "2.5"
 flate2 = "1"
 futures = "0.3"
-gethostname = "1.1"
 http = "1.5"
 image = { version = "0.25", default-features = false, features = [
     "jpeg",
@@ -85,17 +84,9 @@ jiff = { version = "0.2", default-features = false, features = [
 ] }
 kakasi = "0.1"
 libc = "0.2"
-librespot-core = { version = "0.8.0", default-features = false, features = [
-    "rustls-tls-native-roots",
-] }
-librespot-playback = { version = "0.8.0", default-features = false, features = [
-    "rustls-tls-native-roots",
-] }
-librespot-protocol = "0.8.0"
 lofty = "0.25"
 log = "0.4"
 md-5 = "0.11"
-oauth2 = "5.0"
 objc2-app-kit = { version = "0.3", default-features = false, features = [
     "std",
     "NSAccessibility",
@@ -117,7 +108,6 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
 ] }
 once_cell = "1.20"
 open = "5.4"
-opensubsonic = "0.7"
 parking_lot = "0.12"
 percent-encoding = "2.3"
 protobuf = "3"
@@ -215,21 +205,6 @@ rquickjs-sys = { path = "vendor/rquickjs-sys" }
 # "feature \`symphonia-libopus\` does not exist". The rev is upstream's.
 rodio = { git = "https://github.com/RustAudio/rodio", rev = "880aaba54b00aead53651ed1ccbdb672d1375a95" }
 
-# Upstream patches all six librespot crates to its own fork of librespot. Copied
-# whole rather than only the three `music` names directly: the other three are pulled
-# in transitively (librespot-playback -> librespot-audio, librespot-metadata;
-# librespot-core -> librespot-oauth), and patching some but not others would leave a
-# mixed graph of forked and stock crates that share the same `librespot-protocol`
-# types. The fork carries behaviour `music` may rely on, e.g. "core: keep the modes of
-# a set_options command" and the hyper-http-proxy/rustls 0.23 unification.
-# These six become dead weight once Spotify is gated out of `music` for Release 1;
-# drop them in the same commit that removes the Spotify provider.
-librespot-audio = { git = "https://github.com/sonorahq/librespot", rev = "c3bbdf7faca8b6e36a9fdc6ba3e8b8923e89b893" }
-librespot-core = { git = "https://github.com/sonorahq/librespot", rev = "c3bbdf7faca8b6e36a9fdc6ba3e8b8923e89b893" }
-librespot-metadata = { git = "https://github.com/sonorahq/librespot", rev = "c3bbdf7faca8b6e36a9fdc6ba3e8b8923e89b893" }
-librespot-oauth = { git = "https://github.com/sonorahq/librespot", rev = "c3bbdf7faca8b6e36a9fdc6ba3e8b8923e89b893" }
-librespot-playback = { git = "https://github.com/sonorahq/librespot", rev = "c3bbdf7faca8b6e36a9fdc6ba3e8b8923e89b893" }
-librespot-protocol = { git = "https://github.com/sonorahq/librespot", rev = "c3bbdf7faca8b6e36a9fdc6ba3e8b8923e89b893" }
 
 # Release profile from the plan: small, fast, no panic unwinding across the FFI.
 #

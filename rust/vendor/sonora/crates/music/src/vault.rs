@@ -11,22 +11,19 @@
 //!
 //! What goes in is what the provider sent, before its [`Body`](crate::stream::Body) touched it.
 //! A Deezer track stays striped with Blowfish inside the vault, so its decrypted audio still
-//! never reaches the disk. An Apple Music track stays under Widevine and is licensed again on
-//! every play, so peeling off the vault's layer leaves nothing easier to play than the stream
-//! and nothing that plays once Apple stops handing out the key.
+//! never reaches the disk.
 //!
-//! Spotify is the exception. librespot keeps its own played files, as the CDN sent them and
-//! still under the key Spotify hands out on every play, in a folder inside the vault that
-//! [`Vault::foreign`] names. A Spotify download is sealed in the vault with that key beside it,
-//! so peeling off the vault's layer leaves all it takes to play the file.
+//! (Upstream also described Apple Music tracks staying under Widevine and Spotify's own played
+//! files kept by librespot in a folder [`Vault::foreign`] names. Neither provider is built for
+//! Release 1, so neither path is reachable; `foreign` is retained for the same reason the sealed
+//! format is general — see docs/AUDIT.md §13.)
 //!
 //! The owner of the machine can always read the master key out of their keychain or key file,
 //! or the audio out of the process. The vault keeps kept tracks from playing outside Sonora for
 //! anyone without the master key, and nothing more.
 //!
-//! A provider whose bytes carry no protection of their own, such as the listener's own Subsonic
-//! server, keeps its downloads as plain audio files instead, named after the track and playable
-//! in any other player. [`Shelf::plain`] turns that on. A plain download says which file holds
+//! A provider whose bytes carry no protection of their own keeps its downloads as plain audio
+//! files instead, named after the track and playable in any other player. [`Shelf::plain`] turns that on. A plain download says which file holds
 //! it in a small index file under [`INDEX`], so it is found without the key. The cache is sealed
 //! whatever the provider.
 //!
