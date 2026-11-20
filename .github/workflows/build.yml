@@ -263,6 +263,13 @@ jobs:
 
       - name: Cross-compile the core for three ABIs
         working-directory: rust
+        env:
+          # The release profile sets strip = "symbols" per the plan, but UniFFI
+          # library mode reads its `uniffi_*` metadata from the ELF static symbol
+          # table, which that setting deletes (rustc passes -Wl,--strip-all for a
+          # stripped link). Override it for this build only: the trade-off is a
+          # larger library, reported in the size log below.
+          CARGO_PROFILE_RELEASE_STRIP: none
         run: |
           set -o pipefail
           mkdir -p ../ci-logs
