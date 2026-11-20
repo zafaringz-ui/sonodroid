@@ -503,17 +503,22 @@ jobs:
       # this workspace after the step above, so a default build here reproduces the
       # exact situation that used to break — generated code compiled without JNA.
       - name: Default build still compiles with generated bindings present
+        working-directory: android
         run: |
           set -o pipefail
-          mkdir -p ci-logs
-          out=android/app/build/outputs/apk/debug
-          # Keep the Rust APK for the upload step below; the default build overwrites
-          # the same output directory.
+          mkdir -p ../ci-logs
+          out=app/build/outputs/apk/debug
+          # Keep the Rust APK for the smoke check and upload steps: the default build
+          # writes to the same output directory.
           rust_apk=$(find "$out" -name '*.apk' | head -n 1)
           cp "$rust_apk" "$RUNNER_TEMP/rust-backend.apk"
           rm -rf "$out"
+
           status=0
-          gradle :app:assembleDebug --console=plain 2>&1 | tee ci-logs/gradle-default-assemble.log | tail -n 25 || status=${PIPESTATUS[0]}
+          gradle :app:assembleDebug --console=plain 2>&1 \
+            | tee ../ci-logs/gradle-default-assemble.log | tail -n 25 \
+            || status=${PIPESTATUS[0]}
+
           if [ "$status" -ne 0 ]; then
             echo "Default build failed. Errors:"
             n=0
@@ -522,22 +527,18 @@ jobs:
               n=$((n + 1))
               [ "$n" -gt 12 ] && break
               echo "::error::default-build: $line"
-            done < <(grep -E "^e: |error:|What went wrong|Execution failed|> Could not" ci-logs/gradle-default-assemble.log | grep -v '^> Task' | head -n 12 || true)
+            done < <(grep -E "^e: |error:|What went wrong|Execution failed|Could not" ../ci-logs/gradle-default-assemble.log | grep -v '^> Task' | head -n 12 || true)
             exit 1
           fi
-          echo "Default build succeeded."
-          demo=$(find android/app/build/outputs/apk/debug -name '*.apk' | head -n 1)
+          echo "Default build succeeded with bindings present."
+
+          demo=$(find "$out" -name '*.apk' | head -n 1)
           if [ -z "$demo" ]; then
             echo "::error::No APK from the default build"
             exit 1
           fi
           echo "Default APK: $demo ($(stat -c%s "$demo") bytes)"
 
-          # Put the Rust APK back for the upload and smoke-check steps.
-          rm -rf "$out"
-          mkdir -p "$out"
-          cp "$RUNNER_TEMP/rust-backend.apk" "$out/app-debug.apk"
-          echo "Restored the Rust APK: $out/app-debug.apk"
           # The demo APK must carry neither the Rust core nor JNA's dispatcher.
           for abi in arm64-v8a armeabi-v7a x86_64; do
             for lib in libsonora_core.so libjnidispatch.so; do
@@ -548,6 +549,12 @@ jobs:
             done
           done
           echo "Default APK carries no Rust or JNA native libraries."
+
+          # Put the Rust APK back for the smoke check and the upload.
+          rm -rf "$out"
+          mkdir -p "$out"
+          cp "$RUNNER_TEMP/rust-backend.apk" "$out/app-debug.apk"
+          echo "Restored the Rust APK: $out/app-debug.apk"
 
       - name: Smoke-check native libraries inside the APK
         run: |
