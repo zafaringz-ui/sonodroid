@@ -31,6 +31,8 @@ data class Track(
     val isExplicit: Boolean = false,
     val isVideo: Boolean = false,
     val qualityLabel: String? = null,
+    /** Deezer's public 30-second MP3 preview; null for providers/tracks without one. */
+    val previewUrl: String? = null,
 ) {
     val artistLine: String get() = artists.joinToString(", ")
 }
@@ -44,6 +46,8 @@ data class Album(
     val artworkUrl: String? = null,
     val trackCount: Int = 0,
     val qualityLabel: String? = null,
+    /** Populated on an album-detail request when public tracks are available. */
+    val tracks: List<Track> = emptyList(),
 )
 
 data class Artist(
@@ -160,6 +164,8 @@ data class PlaybackState(
     val volume: Float = 1f,
     val crossfadeSeconds: Int = 0,
     val outputName: String = "Phone speaker",
+    /** Visible playback failure, e.g. a Deezer preview that expired. */
+    val error: String? = null,
 ) {
     val progress: Float
         get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f

@@ -87,6 +87,21 @@ class SearchViewModel(
         _state.update { it.copy(provider = value) }
     }
 
+    fun retry() {
+        val term = query.value.trim()
+        if (term.isBlank()) return
+        val selectedFilter = filter.value
+        val selectedProvider = provider.value
+        viewModelScope.launch {
+            _state.update { it.copy(loading = true, error = null) }
+            runCatching { core.search(selectedProvider, term, selectedFilter) }
+                .onSuccess { results -> _state.update { it.copy(loading = false, results = results) } }
+                .onFailure { failure ->
+                    _state.update { it.copy(loading = false, error = failure.message ?: "Search failed") }
+                }
+        }
+    }
+
     /** Enter on the keyboard: remember the term, then let the debounce fire. */
     fun submit() {
         val term = query.value.trim()

@@ -95,6 +95,15 @@ class CoreSelectionPolicyTest {
     }
 
     @Test
+    fun `debug public mode has an explicit non-demo label`() {
+        val selection = CoreSelectionPolicy.deezerPublic()
+
+        assertEquals(CoreMode.DEEZER_PUBLIC, selection.mode)
+        assertNull(selection.reason)
+        assertEquals("Deezer public (30s previews)", selection.label)
+    }
+
+    @Test
     fun `every fallback reason has a distinct non empty description`() {
         val descriptions = FallbackReason.entries.map { CoreSelectionPolicy.describe(it) }
 
@@ -108,9 +117,10 @@ class CoreSelectionPolicyTest {
             CoreSelectionPolicy.LABEL_DEMO,
             CoreSelectionPolicy.LABEL_RUST_FIXTURES,
             CoreSelectionPolicy.LABEL_RUST_LIVE,
+            CoreSelectionPolicy.LABEL_DEEZER_PUBLIC,
         )
 
-        assertEquals(3, labels.size)
+        assertEquals(4, labels.size)
     }
 
     @Test

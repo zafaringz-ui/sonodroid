@@ -1,0 +1,23 @@
+{
+  "data": [
+    {
+      "id": 3135556,
+      "readable": true,
+      "title": "Harder Better Faster Stronger",
+      "duration": 224,
+      "preview": "https://cdn-preview.example/preview.mp3",
+      "artist": {
+        "id": 27,
+        "name": "Daft Punk",
+        "picture_big": "https://api.deezer.com/artist/27/image"
+      },
+      "album": {
+        "id": 302127,
+        "title": "Discovery",
+        "cover_big": "https://api.deezer.com/album/302127/image"
+      },
+      "explicit_lyrics": false
+    }
+  ],
+  "total": 1
+}

@@ -42,8 +42,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import dev.sonora.core.PublicCatalogClient
 import dev.sonora.core.model.PlanTier
 import dev.sonora.core.model.Provider
+import dev.sonora.design.component.EmptyState
 import dev.sonora.design.component.MiniPlayer
 import dev.sonora.feature.auth.SignInRoute
 import dev.sonora.feature.auth.WelcomeScreen
@@ -90,7 +92,9 @@ fun SonoraApp(graph: AppGraph) {
         }
     }
 
-    val startDestination: Any = if (graph.onboarding.isOnboarded) {
+    val startDestination: Any = if (
+        graph.onboarding.isOnboarded || core is PublicCatalogClient
+    ) {
         HomeDestination
     } else {
         WelcomeDestination
@@ -158,20 +162,29 @@ fun SonoraApp(graph: AppGraph) {
             }
 
             composable<SignInDestination> { entry ->
-                val args = entry.toRoute<SignInDestination>()
-                SignInRoute(
-                    core = core,
-                    credentials = graph.credentials,
-                    providerSlug = args.providerSlug,
-                    onBack = { navController.popBackStack() },
-                    onDone = {
-                        graph.onboarding.isOnboarded = true
-                        navController.navigate(HomeDestination) {
-                            popUpTo(WelcomeDestination) { inclusive = true }
-                            launchSingleTop = true
-                        }
-                    },
-                )
+                if (core is PublicCatalogClient) {
+                    EmptyState(
+                        title = "Sign-in unavailable",
+                        body = "This debug build uses Deezer's public catalog and never asks for credentials.",
+                        actionLabel = "Back",
+                        onAction = { navController.popBackStack() },
+                    )
+                } else {
+                    val args = entry.toRoute<SignInDestination>()
+                    SignInRoute(
+                        core = core,
+                        credentials = graph.credentials,
+                        providerSlug = args.providerSlug,
+                        onBack = { navController.popBackStack() },
+                        onDone = {
+                            graph.onboarding.isOnboarded = true
+                            navController.navigate(HomeDestination) {
+                                popUpTo(WelcomeDestination) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        },
+                    )
+                }
             }
 
             composable<HomeDestination> {
@@ -314,6 +327,7 @@ fun SonoraApp(graph: AppGraph) {
                     showNowPlaying = false
                     navController.navigate(LyricsDestination)
                 },
+                onRetry = playerViewModel::retryCurrent,
                 modifier = Modifier.fillMaxHeight(),
             )
         }

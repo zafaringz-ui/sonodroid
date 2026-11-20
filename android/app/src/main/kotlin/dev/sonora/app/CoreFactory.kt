@@ -19,6 +19,7 @@ class CoreFactory(
     private val rustEnabled: Boolean,
     /** The adapter the app should use, or `null` when the flag is off. */
     private val adapterClassName: String? = ADAPTER_CLASS,
+    private val debugPublicMode: Boolean = false,
 ) {
 
     data class Result(
@@ -35,13 +36,28 @@ class CoreFactory(
         scope: CoroutineScope,
         fallback: (CoroutineScope) -> SonoraCoreClient = { DemoCoreClient(it) },
     ): Result {
-        if (!rustEnabled || adapterClassName == null) {
+        if (!rustEnabled) {
+            if (debugPublicMode) {
+                val selection = CoreSelectionPolicy.deezerPublic()
+                Log.i(TAG, "Using ${selection.label}: ${selection.detail}")
+                return Result(dev.sonora.core.deezer.DeezerPublicCoreClient(context, scope), selection)
+            }
             val selection = CoreSelectionPolicy.decide(
                 rustEnabled = false,
                 adapterVisible = false,
                 instantiated = false,
             )
             Log.i(TAG, "Using demo core: ${selection.detail}")
+            return Result(fallback(scope), selection)
+        }
+
+        if (adapterClassName == null) {
+            val selection = CoreSelectionPolicy.decide(
+                rustEnabled = true,
+                adapterVisible = false,
+                instantiated = false,
+                reason = FallbackReason.CLASS_MISSING,
+            )
             return Result(fallback(scope), selection)
         }
 

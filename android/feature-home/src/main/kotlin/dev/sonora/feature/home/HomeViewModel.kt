@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import dev.sonora.core.PublicCatalogClient
 import dev.sonora.core.SonoraCoreClient
 import dev.sonora.core.model.AuthState
 import dev.sonora.core.model.HomeFeed
@@ -22,6 +23,7 @@ data class HomeUiState(
     val signedIn: Set<Provider> = emptySet(),
     val error: String? = null,
     val isDemo: Boolean = false,
+    val isPublicMode: Boolean = false,
 ) {
     val feed: HomeFeed? get() = feeds[selected]
 }
@@ -30,7 +32,12 @@ class HomeViewModel(
     private val core: SonoraCoreClient,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(HomeUiState(isDemo = core.isDemoMode))
+    private val _state = MutableStateFlow(
+        HomeUiState(
+            isDemo = core.isDemoMode,
+            isPublicMode = core is PublicCatalogClient,
+        ),
+    )
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
     init {

@@ -37,6 +37,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import dev.sonora.core.PublicCatalogClient
 import dev.sonora.core.SonoraCoreClient
 import dev.sonora.core.model.Provider
 import dev.sonora.core.model.Track
@@ -73,8 +74,13 @@ class CollectionViewModel(
             _state.update { it.copy(kind = CollectionUiState.Kind.ALBUM, loading = true, error = null) }
             runCatching {
                 val album = core.album(provider, albumId)
-                val tracks = core.library(provider).tracks.filter { it.albumId == albumId }
-                Triple(album, tracks.ifEmpty { core.library(provider).tracks.take(album.trackCount) }, null)
+                val tracks = if (album.tracks.isNotEmpty() || core is PublicCatalogClient) {
+                    album.tracks
+                } else {
+                    core.library(provider).tracks.filter { it.albumId == albumId }
+                        .ifEmpty { core.library(provider).tracks.take(album.trackCount) }
+                }
+                Triple(album, tracks, null)
             }.onSuccess { (album, tracks, _) ->
                 _state.update {
                     it.copy(

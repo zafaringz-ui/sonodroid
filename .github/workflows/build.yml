@@ -132,6 +132,31 @@ jobs:
         with:
           gradle-version: "8.10.2"
 
+      - name: Deezer public search smoke check
+        continue-on-error: true
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import urllib.parse
+          import urllib.request
+          from urllib.parse import urlparse
+
+          endpoint = "https://api.deezer.com/search?" + urllib.parse.urlencode({"q": "daft punk", "limit": "1"})
+          request = urllib.request.Request(endpoint, headers={"User-Agent": "SonoraAndroid/0.1 (public catalog; CI)"})
+          with urllib.request.urlopen(request, timeout=15) as response:
+              payload = json.load(response)
+          first = payload["data"][0]
+          title = first.get("title")
+          preview = first.get("preview") or ""
+          host = urlparse(preview).hostname or "(missing)"
+          print(f"Deezer live result: title={title!r} preview_host={host}")
+          print("Track fields:", ",".join(sorted(first.keys())))
+          print("Artist fields:", ",".join(sorted((first.get("artist") or {}).keys())))
+          print("Album fields:", ",".join(sorted((first.get("album") or {}).keys())))
+          if not title or not preview:
+              raise RuntimeError("Live Deezer result did not include title and preview fields")
+          PY
       - name: Assemble debug
         shell: bash
         run: |

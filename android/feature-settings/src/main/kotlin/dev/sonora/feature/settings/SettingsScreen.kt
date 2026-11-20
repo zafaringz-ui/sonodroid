@@ -140,6 +140,7 @@ fun SettingsScreen(
                 auth = account,
                 onSignIn = { onSignIn(account.provider) },
                 onSignOut = { onSignOut(account.provider) },
+                publicMode = state.isPublicMode,
             )
         }
 
@@ -289,6 +290,7 @@ private fun AccountRow(
     auth: ProviderAuth,
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
+    publicMode: Boolean,
 ) {
     Row(
         modifier = Modifier
@@ -304,7 +306,7 @@ private fun AccountRow(
                         "${auth.account?.displayName ?: "Signed in"} · ${auth.account?.plan?.label ?: "Free"}"
                     AuthState.CONNECTING -> "Connecting…"
                     AuthState.NEEDS_ATTENTION -> auth.detail ?: "Needs attention"
-                    AuthState.SIGNED_OUT -> "Not signed in"
+                    AuthState.SIGNED_OUT -> if (publicMode) "Public mode · sign-in unavailable" else "Not signed in"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -312,8 +314,10 @@ private fun AccountRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        TextButton(onClick = if (auth.state == AuthState.SIGNED_IN) onSignOut else onSignIn) {
-            Text(if (auth.state == AuthState.SIGNED_IN) "Sign out" else "Sign in")
+        if (!publicMode) {
+            TextButton(onClick = if (auth.state == AuthState.SIGNED_IN) onSignOut else onSignIn) {
+                Text(if (auth.state == AuthState.SIGNED_IN) "Sign out" else "Sign in")
+            }
         }
     }
     HorizontalDivider(

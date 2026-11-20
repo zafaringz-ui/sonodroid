@@ -27,7 +27,10 @@ class AppGraph(context: Context) {
 
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    private val coreResult = CoreFactory(rustEnabled = BuildConfig.SONORA_RUST).createCore(
+    private val coreResult = CoreFactory(
+        rustEnabled = BuildConfig.SONORA_RUST,
+        debugPublicMode = BuildConfig.DEBUG,
+    ).createCore(
         context = appContext,
         scope = applicationScope,
     )

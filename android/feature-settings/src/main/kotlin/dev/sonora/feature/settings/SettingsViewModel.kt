@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import dev.sonora.core.PublicCatalogClient
 import dev.sonora.core.SonoraCoreClient
 import dev.sonora.core.model.DownloadItem
 import dev.sonora.core.model.NetworkKind
@@ -32,6 +33,7 @@ data class SettingsUiState(
     val accent: SonoraAccent = SonoraAccent.TIDE,
     val dynamicColor: Boolean = true,
     val isDemo: Boolean = false,
+    val isPublicMode: Boolean = false,
     val version: String = "0.1.0",
     val message: String? = null,
 )
@@ -43,6 +45,7 @@ class SettingsViewModel(
     private val _state = MutableStateFlow(
         SettingsUiState(
             isDemo = core.isDemoMode,
+            isPublicMode = core is PublicCatalogClient,
             accent = SonoraUiPreferences.accent.value,
             dynamicColor = SonoraUiPreferences.dynamicColor.value,
             preferences = Provider.entries.associateWith { core.qualityPreference(it) },

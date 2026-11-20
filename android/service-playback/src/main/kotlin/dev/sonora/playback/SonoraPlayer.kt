@@ -1,5 +1,6 @@
 package dev.sonora.playback
 
+import android.net.Uri
 import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.media3.common.C
@@ -18,6 +19,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+
+private const val PREVIEW_DURATION_US = 30_000_000L
 
 /**
  * Media3 adapter over the Sonora core.
@@ -55,18 +58,20 @@ class SonoraPlayer(
                 .setMediaItem(
                     MediaItem.Builder()
                         .setMediaId(track.id)
+                        .setUri(track.previewUrl)
                         .setMediaMetadata(
                             MediaMetadata.Builder()
                                 .setTitle(track.title)
                                 .setArtist(track.artistLine)
                                 .setAlbumTitle(track.album)
+                                .setArtworkUri(track.artworkUrl?.let(Uri::parse))
                                 .setIsPlayable(true)
                                 .setIsBrowsable(false)
                                 .build(),
                         )
                         .build(),
                 )
-                .setDurationUs(track.durationMs * 1_000L)
+                .setDurationUs(if (track.previewUrl != null) PREVIEW_DURATION_US else track.durationMs * 1_000L)
                 .build()
         }
 

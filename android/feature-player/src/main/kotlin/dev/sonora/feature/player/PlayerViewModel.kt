@@ -57,6 +57,11 @@ class PlayerViewModel(
 
     fun togglePlayPause() = core.playPause()
 
+    fun retryCurrent() {
+        val index = core.playback.value.queueIndex
+        if (core.queue.value.getOrNull(index) != null) core.playQueueIndex(index)
+    }
+
     fun next() = core.next()
 
     fun previous() = core.previous()
