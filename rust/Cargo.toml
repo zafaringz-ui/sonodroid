@@ -7,7 +7,9 @@ version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/zafaringz-ui/sonodroid"
-rust-version = "1.85"
+# Matches rust/rust-toolchain.toml, which pins the compiler CI uses. Raising one
+# without the other makes a local build disagree with CI.
+rust-version = "1.98"
 
 [workspace.dependencies]
 uniffi = "0.28.3"
