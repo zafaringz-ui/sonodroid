@@ -292,14 +292,14 @@ jobs:
           # libraries, dropping the static symbol table UniFFI metadata lives in.
           cargo ndk \
             -t arm64-v8a -t armeabi-v7a -t x86_64 \
-            -o ../android/core-bridge/src/main/jniLibs \
+            -o ../android/core-bridge/src/jniLibs \
             --no-strip \
             build --release --locked -p mobile-core 2>&1 | tee ../ci-logs/cargo-ndk.log
 
       - name: Assert the three shared libraries exist
         run: |
           set -euo pipefail
-          jni=android/core-bridge/src/main/jniLibs
+          jni=android/core-bridge/src/jniLibs
           missing=0
           for abi in arm64-v8a armeabi-v7a x86_64; do
             so="$jni/$abi/libsonora_core.so"
@@ -330,7 +330,7 @@ jobs:
       - name: Assert UniFFI metadata symbols survived the release link
         run: |
           set -euo pipefail
-          so=android/core-bridge/src/main/jniLibs/arm64-v8a/libsonora_core.so
+          so=android/core-bridge/src/jniLibs/arm64-v8a/libsonora_core.so
           echo "---- cargo target output (used for bindgen) ----"
           readelf -S rust/target/aarch64-linux-android/release/libsonora_core.so | grep -E 'symtab|dynsym' || true
           echo "---- static symtab, first 15 uniffi-ish rows ----"

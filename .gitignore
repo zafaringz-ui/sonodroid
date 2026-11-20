@@ -34,4 +34,4 @@ android/core-bridge/src/generated/
 
 # Cross-compiled shared objects, produced by scripts/build-rust.sh or CI.
 # A committed .so would be a stale binary and a large blob in history.
-android/core-bridge/src/main/jniLibs/
+android/core-bridge/src/jniLibs/

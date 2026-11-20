@@ -36,12 +36,16 @@ android {
     //
     // Both roots are conditional: generated bindings reference JNA, which is only
     // on the classpath for `-Psonora.rust=true`, so compiling them into a default
-    // build would fail to resolve it. jniLibs is gated for the same reason — a
-    // stale .so should never be packaged into the demo APK.
+    // build would fail to resolve it.
+    //
+    // jniLibs deliberately lives outside src/main/: that directory is AGP's
+    // *default* native-library location, so the libraries are packaged whether or
+    // not this block runs, and a stale build would land in the demo APK. Keeping
+    // them in src/jniLibs makes the gate below meaningful.
     if (rustBinding) {
         sourceSets["main"].java.srcDir("src/generated")
         sourceSets["main"].kotlin.srcDir("src/rust/kotlin")
-        sourceSets["main"].jniLibs.srcDir("src/main/jniLibs")
+        sourceSets["main"].jniLibs.srcDir("src/jniLibs")
     }
 }
 

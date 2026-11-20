@@ -8,7 +8,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root/rust"
 
-# Default to cargo's own output rather than the jniLibs copy: cargo-ndk may
+# Default to cargo's own output rather than the src/jniLibs copy: cargo-ndk may
 # post-process the copy it writes, and UniFFI needs the ELF static symbol table
 # that stripping removes. scripts/build-rust.sh keeps target/ unstripped.
 library="${1:-$repo_root/rust/target/aarch64-linux-android/release/libsonora_core.so}"

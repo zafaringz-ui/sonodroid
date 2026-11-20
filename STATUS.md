@@ -65,10 +65,10 @@ formatting/tests/Clippy; its detailed error logs have not been supplied.
 - **Implemented but untested — Rust core and tests:** running
   `cd rust && cargo test --workspace --all-targets` failed: `cargo: command not found`.
 - **Implemented but untested — Android ABI builds:** running
-  `cd rust && cargo ndk --target arm64-v8a --target armeabi-v7a --target x86_64 --output-dir ../android/core-bridge/src/main/jniLibs build --release -p mobile-core`
+  `cd rust && cargo ndk --target arm64-v8a --target armeabi-v7a --target x86_64 --output-dir ../android/core-bridge/src/jniLibs build --release -p mobile-core`
   failed: `cargo: command not found`. No ABI was built.
 - **Implemented but untested — UniFFI adapter:** `./scripts/gen-bindings.sh` failed
-  because `android/core-bridge/src/main/jniLibs/arm64-v8a/libsonora_core.so` does not
+  because `android/core-bridge/src/jniLibs/arm64-v8a/libsonora_core.so` does not
   exist. Bindings have not been generated and the adapter has not been reconciled.
 - **Implemented but untested — emulator launch:** `adb devices` failed with
   `adb: command not found`. No emulator launch has been attempted.
@@ -88,7 +88,7 @@ cd android
 ./gradlew :app:assembleDebug testDebugUnitTest --stacktrace
 cd ../rust
 cargo test --workspace --all-targets
-cargo ndk --target arm64-v8a --target armeabi-v7a --target x86_64 --output-dir ../android/core-bridge/src/main/jniLibs build --release -p mobile-core
+cargo ndk --target arm64-v8a --target armeabi-v7a --target x86_64 --output-dir ../android/core-bridge/src/jniLibs build --release -p mobile-core
 cd ..
 ./scripts/gen-bindings.sh
 cd android
