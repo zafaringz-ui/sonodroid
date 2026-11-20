@@ -203,6 +203,12 @@ windows-sys = { version = "0.61", features = [
 ytmusic = { git = "https://github.com/sonorahq/ytmusic-rs", rev = "99f7d14" }
 
 [patch.crates-io]
+
+# rquickjs-sys 0.12.2 ships no Android bindings and its `bindgen` feature cannot be
+# switched on from here (`rquickjs-core` declares it with default-features = false), so
+# this copy generates bindings unconditionally. See vendor/rquickjs-sys/VENDORED.md and
+# docs/AUDIT.md §12. Delete this entry and the copy when upstream ships Android bindings.
+rquickjs-sys = { path = "vendor/rquickjs-sys" }
 # `music` asks for rodio's `symphonia-libopus` feature (crates/music/Cargo.toml:51),
 # which published rodio 0.22.2 does not have: the feature was added upstream after
 # the 0.22.2 release. Without this patch resolution fails outright with

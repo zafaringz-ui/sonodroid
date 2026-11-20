@@ -91,34 +91,25 @@ jobs:
           done
           echo "::notice title=cargo-ndk::$(cargo ndk --version 2>&1 | tail -n 1)"
 
-      # The patch is applied here, not committed yet, for one reason: the vendored crate
-      # pulls bindgen 0.72 and clang-sys into the graph, and the lockfile that keeps every
-      # `--locked` job green cannot be produced offline. Committing the patch before the
-      # lock would break all three build.yml jobs on this branch. So the patch and the
-      # resolution happen together in the runner, and the patch is committed in the follow
-      # up that also commits the resolved lock.
-      - name: Apply the vendored rquickjs-sys patch (runtime only)
-        working-directory: rust
-        run: |
-          set -euo pipefail
-          # The entry goes INSIDE the existing [patch.crates-io] table. Appending a second
-          # header is a hard error ("duplicate key --> Cargo.toml:267", run 44776146749),
-          # which is how the first attempt failed.
-          python3 ../scripts/wp1-apply-rquickjs-patch.py Cargo.toml
-          grep -n -A3 '^\[patch.crates-io\]' Cargo.toml | head -n 6
-
-      # Now the resolution has real work to do: bindgen + clang-sys enter the graph, and
-      # rquickjs-sys loses its registry source because it is a path dependency.
+      # The patch is committed now, together with the lockfile it requires, so this run
+      # proves the committed state rather than a runtime edit. Committing them apart would
+      # have broken every --locked job in between: the vendored crate puts bindgen 0.72 and
+      # clang-sys in the graph, and the lock that records them has to land in the same
+      # commit. The job no longer needs to touch Cargo.toml.
+      # Proves the committed lockfile is complete: --locked must fail if it is not, which
+      # is the same gate every other job uses.
       - name: Resolve the lockfile with the bindgen graph
         working-directory: rust
         timeout-minutes: 15
         run: |
           set -euo pipefail
           cp Cargo.lock /tmp/Cargo.lock.before
-          if cargo metadata --format-version 1 > /tmp/metadata.json 2> /tmp/resolve.log; then
-            echo "::notice title=resolve::ok"
+          # --locked first: if the committed lockfile is missing anything the vendored crate
+          # needs, this fails and nothing after it can produce a misleading pass.
+          if cargo metadata --format-version 1 --locked > /tmp/metadata.json 2> /tmp/resolve.log; then
+            echo "::notice title=resolve::ok (cargo metadata --locked)"
           else
-            echo "::error title=resolve::FAILED — see resolve-tail"
+            echo "::error title=resolve::FAILED with --locked — see resolve-tail"
           fi
           echo "::notice title=resolve-tail::$(tail -n 20 /tmp/resolve.log | tr '\n' '%0A' | head -c 6000)"
           # `diff` exits 1 when it finds differences, and this step runs under bash -e with
@@ -126,6 +117,11 @@ jobs:
           added=$(diff <(grep '^name = ' /tmp/Cargo.lock.before) <(grep '^name = ' Cargo.lock) 2>/dev/null | grep '^>' | sed 's/^> name = //' | tr -d '"' | sort -u | tr '\n' ' ' || true)
           echo "::notice title=lock-added::${added:-none}"
           echo "::notice title=lock-diffstat::$(git diff --stat Cargo.lock | tr '\n' ' ' || true)"
+          if git diff --quiet Cargo.lock; then
+            echo "::notice title=lock-stable::committed lockfile is already complete"
+          else
+            echo "::error title=lock-stable::committed lockfile changed under --locked=false — re-commit it"
+          fi
           echo "::notice title=lock-rqjs::$(grep -A3 '^name = "rquickjs-sys"' Cargo.lock | tr '\n' ' ' || true)"
 
       - uses: actions/upload-artifact@v4
