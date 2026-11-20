@@ -215,6 +215,17 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.10.2"
+          # Do not restore a Gradle User Home for this job. A restored home can carry a
+          # record saying jna-5.14.0.aar is resolved when its bytes are gone, and Gradle
+          # only notices inside the AAR transform:
+          #   TransformException: Failed to transform jna-5.14.0.aar to match
+          #     {artifactType=android-aar-metadata}
+          #   caused by ArtifactNotFoundException: Could not find jna-5.14.0.aar
+          # Deleting the module and transform directories by hand did not clear it (run
+          # 44733717656), so this job resolves from a clean home instead. The variable was
+          # isolated: run 44731681737 passed with a clean home, 44732675888 failed with a
+          # restored one.
+          cache-disabled: true
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -477,7 +488,11 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p ../ci-logs
-          if gradle :app:assembleDebug -Psonora.rust=true --stacktrace 2>&1 | tee ../ci-logs/gradle-rust-assemble.log; then
+          # --no-configuration-cache keeps resolution failures as resolution failures instead
+          # of being wrapped in a configuration-cache report.
+          if gradle :app:assembleDebug -Psonora.rust=true --stacktrace \
+               --no-configuration-cache \
+               2>&1 | tee ../ci-logs/gradle-rust-assemble.log; then
             status=0
           else
             status=${PIPESTATUS[0]}
@@ -499,6 +514,30 @@ jobs:
           fi
 
       # No device here, so this is the closest thing to "did it package?".
+      # Only runs when the build failed: shows which repository and variant Gradle settled
+      # on for JNA, which is the evidence needed to tell a repository problem from a cache one.
+      - name: Explain the JNA resolution (diagnostics only)
+        if: failure()
+        working-directory: android
+        run: |
+          set -o pipefail
+          mkdir -p ../ci-logs
+          gradle :app:dependencyInsight \
+            --configuration debugRuntimeClasspath \
+            --dependency net.java.dev.jna:jna \
+            --refresh-dependencies \
+            --no-configuration-cache \
+            2>&1 | tee ../ci-logs/jna-insight.log | tail -n 40 || true
+          echo "JNA lines from the insight:"
+          grep -i "jna" ../ci-logs/jna-insight.log | head -n 20 || echo "(no jna lines)"
+          n=0
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            n=$((n + 1))
+            [ "$n" -gt 10 ] && break
+            echo "::warning::jna: $line"
+          done < <(grep -i "jna" ../ci-logs/jna-insight.log | head -n 10 || true)
+
       # Regression check for the source-set gating: src/generated and jniLibs exist in
       # this workspace after the step above, so a default build here reproduces the
       # exact situation that used to break — generated code compiled without JNA.
