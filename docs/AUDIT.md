@@ -914,3 +914,58 @@ Everything below is either unread, or read but not executed. Nothing here should
 12. Unique crate count in `THIRD-PARTY.md` — the 809 figure is entries, with duplicates (§1a).
 13. Line numbers are correct as of commit `c0b501c` and will drift on any `vendor/sonora` bump.
     Re-grep before relying on one.
+14. The cause of the CI breakage described in §10. The facts and the fix candidates are verified;
+    the mechanism is my inference.
+
+---
+
+## 10. Known CI breakage on `main` at the time of writing
+
+Not part of the audit, but it makes "CI stays green" impossible to claim for this PR and has to be
+recorded rather than worked around.
+
+`main` at `fb03ba0` fails `Android native` → **Build the Rust-backed debug APK**:
+
+```
+org.gradle.internal.resolve.ArtifactNotFoundException:
+  Could not find jna-5.14.0.aar (net.java.dev.jna:jna:5.14.0).
+```
+
+Facts, all checked:
+
+- The **same commit** `c753cc4` passed this exact step at `2026-11-20T11:21:23Z` (run `44726926524`,
+  producing a 34,408,844-byte APK with `libjnidispatch.so` in it) and fails at `11:24:06Z` (run
+  `44727301886`, run `44728768433` in this branch).
+- `net.java.dev.jna:jna:5.14.0` **does** publish an `.aar` on Maven Central — 517,894 bytes, dated
+  2023-12-10, listed in the repository's own index next to the `.jar`.
+- `android/settings.gradle.kts` already contains `mavenCentral()` in
+  `dependencyResolutionManagement`, with `google()` first and `FAIL_ON_PROJECT_REPOS`. JNA is not in
+  `google()`.
+- This branch changes **one file**, `docs/AUDIT.md`; `git diff fb03ba0..HEAD -- .github/ android/ rust/`
+  is empty, so nothing here can influence Gradle resolution.
+- The same failure reproduces on re-run, so it is not a one-off runner glitch.
+
+My reading: Gradle is resolving `net.java.dev.jna` against `google()` (which answers with a POM or
+metadata rather than the `.aar`) and the resulting "not found" is cached for the build, which explains
+a passing-then-failing pair minutes apart on identical inputs. I have **not** proven that — no
+`--info`/`--refresh-dependencies` run has been done, because that means editing the workflow, which
+this PR is not allowed to do.
+
+**Suggested fix (not applied here):** in `android/core-bridge/build.gradle.kts`, resolve JNA from an
+explicitly named repository instead of relying on order:
+
+```kotlin
+dependencies {
+    if (rustBinding) {
+        implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
+    }
+}
+// settings.gradle.kts already lists mavenCentral(); if ordering is the cause, add
+// exclusiveContent or move mavenCentral() ahead of google() for this group only.
+```
+
+or, ordering-independently, keep `google()` out of the picture for this group with
+`exclusiveContent { forRepository { mavenCentral() } filter { includeGroup("net.java.dev.jna") } }`.
+
+Either is a one-file Android change with a CI check that already exists (the `libjnidispatch.so`
+assertion added in #11), so it belongs in its own PR — not in a docs-only audit.
