@@ -85,13 +85,21 @@ formatting/tests/Clippy; its detailed error logs have not been supplied.
 - **Stubbed/simulated — PoToken, provider auth and audio sink:** no production
   provider authentication, token minting or Oboe playback exists.
 
+- **Verified — the vendored `music` crate cross-compiles for all three Android
+  ABIs:** workflow run `44779829727` reports PASS for `aarch64-linux-android`,
+  `armv7-linux-androideabi` and `x86_64-linux-android`, with `aws-lc-sys`,
+  `libsqlite3-sys` and `opusic-sys` all producing artifacts, and the committed
+  `rust/Cargo.lock` accepted under `--locked`. The blocker was `rquickjs-sys` shipping no
+  Android bindings; it is fixed by a vendored copy at `rust/vendor/rquickjs-sys/` (see its
+  `VENDORED.md` and `docs/AUDIT.md` §12a). This proves compilation only — nothing here has
+  been shipped or run on a device with `music` linked in.
+
 ## Local commands to unblock Phase A
 
 Use JDK 17, Android SDK 35, an Android NDK (r27c), Rust 1.85, `cargo-ndk` 3.x,
 and an available emulator. In a fresh clone first run:
 
 ```sh
-git submodule update --init --recursive
 cd android
 ./gradlew :app:assembleDebug testDebugUnitTest --stacktrace
 cd ../rust
