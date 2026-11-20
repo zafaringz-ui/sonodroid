@@ -23,7 +23,7 @@ class CoreSelectionPolicyTest {
 
         assertEquals(CoreMode.DEMO, selection.mode)
         assertEquals(FallbackReason.FLAG_OFF, selection.reason)
-        assertEquals("MUTATION CHECK: this must fail", selection.label)
+        assertEquals(CoreSelectionPolicy.LABEL_DEMO, selection.label)
         assertTrue(selection.detail.orEmpty().contains("Build flag is off"))
     }
 
