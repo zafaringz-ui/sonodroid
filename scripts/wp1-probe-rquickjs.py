@@ -1,33 +1,65 @@
 #!/usr/bin/env python3
-"""Probe helper for WP-1: make the *cargo-extracted* rquickjs-sys build with bindgen.
+"""Patch cargo-extracted crates in the runner so rquickjs binds Android correctly.
 
-Experiment scaffolding, not the fix, and not intended to stay in the tree. Nothing under
-`rust/` is edited: this modifies the copy cargo extracted into
-`$CARGO_HOME/registry/src/...` from crates.io, which is why no repository file and no
-committed `Cargo.lock` entry is touched by it.
+Two jobs, both on throwaway copies under `$CARGO_HOME/registry/src/`, never on `rust/`:
 
-Why this shape and not `--features rquickjs-sys/bindgen`: cargo only accepts
-`dep/feature` for a dependency of the *selected* package, and `rquickjs-sys` is a
-transitive dependency (music -> ytmusic -> rquickjs -> rquickjs-core -> rquickjs-sys).
-Measured, not assumed: run 44762272947 failed with
+`enable-bindgen <extracted rquickjs-core dir>`
+    Turn on `rquickjs-sys`'s `bindgen` feature. It cannot be switched on from our side:
+    the dependency chain is music -> ytmusic -> rquickjs -> rquickjs-core -> rquickjs-sys,
+    `rquickjs-core` declares `rquickjs-sys` with `default-features = false`, and cargo
+    rejects `--features rquickjs-sys/bindgen` on `music` outright
+    ("the package 'music' does not contain this feature", run 44762272947). So the
+    feature is added to the dependency edge in `rquickjs-core`'s own manifest, which is
+    the edge that owns the decision.
 
-    error: the package 'music' does not contain this feature: rquickjs-sys/bindgen
+`instrument-sys <extracted rquickjs-sys dir>`
+    In `build.rs`: disable the host-vs-target clamp (so an ABI build on a 64-bit runner
+    really generates that ABI's bindings) and dump the generated bindings, so the Android
+    layouts can be captured and compared.
 
-So enabling the feature has to happen in the crate's own manifest, which is exactly what
-the real fix does (via a `[patch.crates-io]` copy of the crate).
-
-Two changes to the extracted copy:
-
-1. `Cargo.toml`: `default = ["bindgen"]`, so the feature is on without a CLI flag.
-2. `build.rs`: drop the host-vs-target clamp so an ABI build on a 64-bit runner really
-   generates that ABI's bindings, and dump the result so the layouts can be compared.
-
-Usage: wp1-probe-rquickjs.py <extracted crate directory>
+Both print what they changed, because the output is read back from annotations.
 """
 from __future__ import annotations
 
 import pathlib
+import re
 import sys
+
+# ---------------------------------------------------------------- rquickjs-core
+
+DEP_LINE = re.compile(r"^rquickjs-sys = (.*)$", re.MULTILINE)
+
+
+def enable_bindgen(crate: pathlib.Path) -> int:
+    manifest = crate / "Cargo.toml"
+    text = manifest.read_text()
+
+    match = DEP_LINE.search(text)
+    if match is None:
+        print(f"no 'rquickjs-sys =' dependency line in {manifest}", file=sys.stderr)
+        return 1
+
+    value = match.group(1)
+    print(f"core dep before: rquickjs-sys = {value}")
+
+    if "features" in value:
+        print("core dep already sets features; leaving it alone", file=sys.stderr)
+        return 1
+
+    if value.startswith("{"):
+        new_value = value.replace("{", '{ features = ["bindgen"],', 1)
+    else:
+        # A bare version string, e.g. rquickjs-sys = "0.12.2".
+        version = value.strip().strip('"')
+        new_value = f'{{ version = "{version}", features = ["bindgen"] }}'
+
+    text = text[: match.start(1)] + new_value + text[match.end(1) :]
+    manifest.write_text(text)
+    print(f"core dep after:  rquickjs-sys = {new_value}")
+    return 0
+
+
+# ---------------------------------------------------------------- rquickjs-sys
 
 GUARD_OLD = 'if target == host && env::var("CARGO_FEATURE_UPDATE_BINDINGS").is_err() {'
 GUARD_NEW = (
@@ -38,10 +70,10 @@ GUARD_NEW = (
 
 ANCHOR = '    let bindings = builder.generate().expect("Unable to generate bindings");'
 
-PROBE = ANCHOR + '''
+DUMP = ANCHOR + '''
 
-    // PROBE ONLY (scripts/wp1-probe-rquickjs.py): dump the generated bindings and report
-    // the shapes that decide whether one layout can serve every ABI.
+    // Instrumentation, not part of the fix: dump the generated bindings and report the
+    // shapes that decide whether one layout can serve every ABI.
     {
         let dump = std::env::var("PROBE_DUMP_DIR").unwrap_or_else(|_| "/tmp/probe".into());
         let _ = fs::create_dir_all(&dump);
@@ -70,30 +102,10 @@ PROBE = ANCHOR + '''
     }'''
 
 
-def main() -> int:
-    if len(sys.argv) != 2:
-        print("usage: wp1-probe-rquickjs.py <extracted crate directory>", file=sys.stderr)
-        return 2
-
-    crate = pathlib.Path(sys.argv[1])
-    manifest = crate / "Cargo.toml"
+def instrument_sys(crate: pathlib.Path) -> int:
     build_rs = crate / "build.rs"
-
-    # 1. Turn the feature on by default. The crate has no `default` key, so add one.
-    text = manifest.read_text()
-    if 'default = ["bindgen"]' in text:
-        print("manifest already defaults to bindgen")
-    else:
-        anchor = "[features]\nbindgen = [\"bindgen-rs\"]\n"
-        if anchor not in text:
-            print(f"[features] anchor not found in {manifest}", file=sys.stderr)
-            return 1
-        text = text.replace(anchor, anchor + 'default = ["bindgen"]\n', 1)
-        manifest.write_text(text)
-        print(f"patched {manifest}: default = [\"bindgen\"]")
-
-    # 2. Clamp off + dump on.
     source = build_rs.read_text()
+
     if GUARD_OLD not in source:
         print(f"guard anchor not found in {build_rs}", file=sys.stderr)
         return 1
@@ -102,10 +114,26 @@ def main() -> int:
     if ANCHOR not in source:
         print(f"generate anchor not found in {build_rs}", file=sys.stderr)
         return 1
-    source = source.replace(ANCHOR, PROBE, 1)
+    source = source.replace(ANCHOR, DUMP, 1)
+
     build_rs.write_text(source)
-    print(f"patched {build_rs}")
+    print(f"instrumented {build_rs}")
     return 0
+
+
+def main() -> int:
+    if len(sys.argv) != 3 or sys.argv[1] not in {"enable-bindgen", "instrument-sys"}:
+        print(
+            "usage: wp1-probe-rquickjs.py {enable-bindgen <rquickjs-core dir>"
+            " | instrument-sys <rquickjs-sys dir>}",
+            file=sys.stderr,
+        )
+        return 2
+
+    crate = pathlib.Path(sys.argv[2])
+    if sys.argv[1] == "enable-bindgen":
+        return enable_bindgen(crate)
+    return instrument_sys(crate)
 
 
 if __name__ == "__main__":

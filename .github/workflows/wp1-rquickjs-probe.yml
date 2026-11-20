@@ -1,25 +1,25 @@
-# WP-1 experiment, NOT the fix. Four questions, answered by building the real thing:
-#   A. Does `rquickjs-sys`'s `bindgen` feature plus a per-target clang `--target` compile
-#      `rquickjs-sys`, and therefore `music`, for the three Android ABIs?
-#   B. Whose bindgen environment is right? cargo-ndk exports
-#      `BINDGEN_EXTRA_CLANG_ARGS_<triple>` as `--sysroot=... -I...` with NO `--target=`,
-#      in every released version (3.5.4 through 4.1.2; the fix, commit ee7329a, is on
-#      master only). Without `--target`, bindgen binds the HOST layout: for armv7 that
-#      means 64-bit `size_t` and the 64-bit `JSValue` union, while the C code compiles
-#      32-bit. This workflow builds armv7 twice - once with cargo-ndk's arguments, once
-#      with a `--target=` added - and prints both layouts, so the difference is measured
-#      rather than argued.
-#   C. Do the generated bindings differ per ABI, or can one layout serve all three?
-#   D. Does the build reach aws-lc-sys / libsqlite3-sys / opusic-sys, which the first WP-1
-#      gate never got to because cargo stops at the first hard error?
+# WP-1 experiment, NOT the fix. Two questions, answered by building the real thing:
+#   A. Does `rquickjs-sys` build with generated (bindgen) bindings for all three Android
+#      ABIs, given a per-target clang `--target`?
+#   B. Do the generated bindings differ per ABI — and how — so the fix knows whether it
+#      needs three files or one?
+#   C. Does the build then reach aws-lc-sys / libsqlite3-sys / opusic-sys, which the first
+#      WP-1 gate never got to because cargo stops at the first hard error?
 #
-# Nothing under `rust/` is edited. The crate this workflow patches is the copy cargo
-# extracted into the registry from crates.io (scripts/wp1-probe-rquickjs.py), and the
-# feature is turned on in that copy's manifest rather than on the command line, because
-# `--features rquickjs-sys/bindgen` is rejected outright: run 44762272947 measured
-# "the package 'music' does not contain this feature". That is also why the real fix
-# needs a `[patch.crates-io]` copy of the crate plus a lockfile update, and the
-# `--locked` step below records the lockfile half of that.
+# Why the feature cannot simply be switched on: the chain is
+# music -> ytmusic -> rquickjs -> rquickjs-core -> rquickjs-sys, `rquickjs-core` declares
+# `rquickjs-sys` with `default-features = false`, and cargo rejects
+# `--features rquickjs-sys/bindgen` on `music` ("the package 'music' does not contain this
+# feature", run 44762272947). So this workflow patches the two throwaway copies cargo
+# extracted into the registry (scripts/wp1-probe-rquickjs.py) — `rust/` is untouched and
+# the committed Cargo.lock is not modified by it.
+#
+# cargo-ndk exports BINDGEN_EXTRA_CLANG_ARGS_<triple> as `--sysroot=... -I...` with NO
+# `--target=`, in every released version (3.5.4 through 4.1.2; the fix, commit ee7329a, is
+# on master only). Without `--target` bindgen binds the HOST layout: 64-bit `size_t` and
+# the 64-bit `JSValue` union for a 32-bit ABI. Every build below therefore sets
+# BINDGEN_EXTRA_CLANG_ARGS_<triple> explicitly, and armv7 is built twice — with and
+# without `--target` — so the difference is measured rather than argued.
 #
 # Everything is reported through annotations: job logs and artifacts cannot be read back
 # from the authoring environment, so anything that is not an annotation is lost.
@@ -38,10 +38,7 @@ env:
   NDK_URL: "https://dl.google.com/android/repository/android-ndk-r27c-linux.zip"
   NDK_SHA256: "59c2f6dc96743b5daf5d1626684640b20a6bd2b1d85b13156b90333741bad5cc"
   CARGO_NDK_VERSION: "3.5.4"
-  # One API level for every ABI, so the clang target below is reproducible by hand.
   ANDROID_API: "21"
-  # Git dependencies are fetched by libgit2 during a cargo run; cargo-ndk replaces
-  # CC/CFLAGS/AR and unsets the credential helper for child processes. Be explicit.
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 jobs:
@@ -51,6 +48,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+
+      # Started before the NDK download so the 3.5.4 build overlaps it.
+      - name: Install cargo-ndk (background)
+        run: |
+          nohup cargo install cargo-ndk --version "$CARGO_NDK_VERSION" --locked > /tmp/cargo-ndk-install.log 2>&1 &
 
       - name: Install Rust targets for Android
         run: |
@@ -76,37 +78,44 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake nasm clang libclang-dev pkg-config perl golang-go || true
-          echo "libclang: $(ls /usr/lib/llvm-*/lib/libclang.so* 2>/dev/null | head -n 3 | tr '\n' ' ')"
-          echo "clang: $(clang --version | head -n 1)"
+          echo "::notice title=host-tools::$(clang --version | head -n 1) | libclang: $(ls /usr/lib/llvm-*/lib/libclang.so* 2>/dev/null | head -n 2 | tr '\n' ' ')"
 
-      - name: Install cargo-ndk
+      - name: Wait for cargo-ndk
         run: |
-          cargo install cargo-ndk --version "$CARGO_NDK_VERSION" --locked || true
-          cargo ndk --version || true
+          wait_until=$((SECONDS + 240))
+          while ! command -v cargo-ndk >/dev/null 2>&1; do
+            if [ $SECONDS -ge "$wait_until" ]; then
+              echo "::error title=cargo-ndk::still missing after 240s"
+              tail -n 20 /tmp/cargo-ndk-install.log || true
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "::notice title=cargo-ndk::$(cargo ndk --version 2>&1 | tail -n 1)"
 
       - name: Fetch the locked dependency graph
         working-directory: rust
+        timeout-minutes: 15
         run: |
           cargo fetch --locked 2>&1 | tail -n 3 || true
-          ls -d "$HOME"/.cargo/registry/src/*/rquickjs-sys-0.12.2 > /tmp/rqjs-dir || true
-          echo "::notice title=probe-rqjs-dir::$(cat /tmp/rqjs-dir 2>/dev/null || echo MISSING)"
+          reg="$HOME/.cargo/registry/src"
+          ls -d "$reg"/*/rquickjs-core-0.12.2 > /tmp/core-dir || true
+          ls -d "$reg"/*/rquickjs-sys-0.12.2 > /tmp/sys-dir || true
+          echo "::notice title=probe-dirs::core=$(cat /tmp/core-dir 2>/dev/null || echo MISSING) sys=$(cat /tmp/sys-dir 2>/dev/null || echo MISSING)"
 
-      - name: Patch the registry copy of rquickjs-sys (probe only)
+      - name: Patch the registry copies (probe only)
         run: |
           set -euo pipefail
-          d=$(cat /tmp/rqjs-dir 2>/dev/null || true)
-          [ -n "$d" ] || { echo "::error title=probe-patch::registry copy not found"; exit 0; }
-          chmod -R u+w "$d"
-          if python3 scripts/wp1-probe-rquickjs.py "$d"; then
-            echo "::notice title=probe-patch::patched $(basename "$d")"
-          else
-            echo "::error title=probe-patch::anchor not found — rquickjs-sys layout changed"
-          fi
-          echo "::notice title=probe-quickjs-src::$(ls "$d/quickjs" 2>/dev/null | head -n 6 | tr '\n' ' ')"
-          grep -n '^default' "$d/Cargo.toml" || true
+          core=$(cat /tmp/core-dir 2>/dev/null || true)
+          sys=$(cat /tmp/sys-dir 2>/dev/null || true)
+          [ -n "$core" ] && [ -n "$sys" ] || { echo "::error title=probe-patch::registry copies not found"; exit 0; }
+          chmod -R u+w "$core" "$sys"
+          python3 scripts/wp1-probe-rquickjs.py enable-bindgen "$core" || echo "::error title=probe-patch::enable-bindgen failed"
+          python3 scripts/wp1-probe-rquickjs.py instrument-sys "$sys" || echo "::error title=probe-patch::instrument-sys failed"
+          echo "::notice title=probe-quickjs-src::$(ls "$sys/quickjs" 2>/dev/null | head -n 6 | tr '\n' ' ')"
 
-      # Records the lockfile half of the fix: with the feature on, bindgen 0.72 and
-      # clang-sys are not in Cargo.lock, so --locked cannot pass. Expected to fail.
+      # Records the lockfile half of the fix: the feature drags in bindgen 0.72 and
+      # clang-sys, which Cargo.lock does not contain, so --locked cannot pass.
       - name: "Q1 --locked with the feature on (expected: lockfile must change)"
         working-directory: rust
         run: |
@@ -116,16 +125,18 @@ jobs:
           else
             echo "::error title=probe-locked::FAILED as expected"
           fi
-          echo "::notice title=probe-locked-tail::$(tail -n 14 /tmp/locked.log | tr '\n' '%0A' | head -c 4000)"
+          echo "::notice title=probe-locked-tail::$(grep -E '^(error|help|  \|)' /tmp/locked.log | head -n 8 | tr '\n' '%0A' | head -c 3000)"
 
-      # Record exactly which packages the feature adds, by resolving without --locked.
+      # Which packages the feature adds. Compiles the host bindgen deps for real — the
+      # first place libclang is exercised.
       - name: "Q2 which packages the bindgen feature adds"
         working-directory: rust
+        timeout-minutes: 25
         run: |
           set -o pipefail
           cp Cargo.lock /tmp/Cargo.lock.before
-          if cargo ndk -t arm64-v8a -p "$ANDROID_API" check -p music > /tmp/resolve.log 2>&1; then
-            echo "::notice title=probe-resolve::compiled music for aarch64 with bindgen bindings"
+          if cargo ndk -t arm64-v8a -p "$ANDROID_API" check -p rquickjs-sys > /tmp/resolve.log 2>&1; then
+            echo "::notice title=probe-resolve::rquickjs-sys compiled for aarch64"
           else
             echo "::error title=probe-resolve::FAILED — see probe-resolve-tail"
           fi
@@ -133,11 +144,9 @@ jobs:
                   | grep '^>' | sed 's/^> name = //' | tr -d '"' | sort -u | tr '\n' ' ')
           echo "::notice title=probe-lock-added::${added:-none}"
           echo "::notice title=probe-lock-diffstat::$(git diff --stat Cargo.lock | tr '\n' ' ')"
-          echo "::notice title=probe-resolve-notes::$(grep -E '(PROBE_TARGET|^error|warning: rquickjs)' /tmp/resolve.log | head -n 25 | tr '\n' '%0A' | head -c 6000)"
           echo "::notice title=probe-resolve-tail::$(tail -n 20 /tmp/resolve.log | tr '\n' '%0A' | head -c 6000)"
 
-      # The per-ABI clang arguments the fix needs, spelled out. `--target` is the part
-      # cargo-ndk leaves out; `--sysroot` and the arch include dir are what it does pass.
+      # The per-ABI clang arguments the fix needs. `--target` is what cargo-ndk omits.
       - name: Compute bindgen clang args per ABI
         run: |
           set -euo pipefail
@@ -151,9 +160,10 @@ jobs:
           grep BINDGEN_ARGS "$GITHUB_ENV" | sed 's/^/::notice title=probe-args::/'
 
       # One ABI per step so a failure names its own ABI. PROBE_HOST_BINDGEN disables the
-      # crate's host-vs-target clamp in the patched build.rs; dumps land in /tmp/probe.
+      # crate's host-vs-target clamp; dumps land in /tmp/probe and are reported at the end.
       - name: "music via bindgen (aarch64-linux-android)"
         working-directory: rust
+        timeout-minutes: 10
         env:
           PROBE_HOST_BINDGEN: "1"
           PROBE_DUMP_DIR: "/tmp/probe"
@@ -170,6 +180,7 @@ jobs:
 
       - name: "music via bindgen (x86_64-linux-android)"
         working-directory: rust
+        timeout-minutes: 10
         env:
           PROBE_HOST_BINDGEN: "1"
           PROBE_DUMP_DIR: "/tmp/probe"
@@ -186,6 +197,7 @@ jobs:
 
       - name: "music via bindgen (armv7-linux-androideabi, --target supplied)"
         working-directory: rust
+        timeout-minutes: 10
         env:
           PROBE_HOST_BINDGEN: "1"
           PROBE_DUMP_DIR: "/tmp/probe"
@@ -200,10 +212,10 @@ jobs:
           echo "::notice title=probe-armv7-shapes::$(grep -E '(PROBE_TARGET|^error|warning: rquickjs)' /tmp/armv7.log | head -n 30 | tr '\n' '%0A' | head -c 6000)"
           echo "::error title=probe-armv7-tail::$(tail -n 20 /tmp/armv7.log | tr '\n' '%0A' | head -c 6000)"
 
-      # The landmine, isolated: same crate, same target, cargo-ndk's own arguments (no
-      # --target). It compiles - and binds the 64-bit layout for a 32-bit ABI.
+      # The landmine, isolated: same crate, same ABI, cargo-ndk's own arguments.
       - name: "rquickjs-sys alone (armv7, NO --target — cargo-ndk's own args)"
         working-directory: rust
+        timeout-minutes: 10
         env:
           PROBE_HOST_BINDGEN: "1"
           PROBE_DUMP_DIR: "/tmp/probe-notarget"
@@ -217,8 +229,7 @@ jobs:
           fi
           echo "::notice title=probe-armv7-notarget-shapes::$(grep -E '(PROBE_TARGET|^error)' /tmp/armv7-notarget.log | head -n 20 | tr '\n' '%0A' | head -c 6000)"
 
-      # Which native crates got far enough to produce build artifacts. This is the §1c
-      # question the first gate could not answer.
+      # Which native crates got far enough to produce build artifacts: the §1c question.
       - name: Which native crates built
         if: always()
         run: |
