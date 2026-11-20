@@ -524,6 +524,18 @@ mod tests {
         })
     }
 
+    // Guards a real regression risk: [workspace.package].version is 0.50.2 for the
+    // vendored crates, and this crate pins 0.1.0 explicitly in its own manifest.
+    // UniFFI bakes CARGO_PKG_VERSION into the generated metadata, so if this ever
+    // starts reporting the workspace version the checked-in Kotlin bindings and the
+    // UNIFFI_META_* symbol checks stop matching.
+    #[test]
+    fn version_reports_the_crate_version_not_the_workspace_version() {
+        let core = core();
+        assert_eq!(core.version(), "0.1.0");
+        assert_ne!(core.version(), "0.50.2");
+    }
+
     #[test]
     fn playing_tracks_loads_the_first_track_and_starts() {
         let core = core();
