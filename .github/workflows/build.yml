@@ -28,9 +28,20 @@ jobs:
         with:
           workspaces: rust
 
-      - name: Generate Cargo lockfile
+      # `--locked` below fails fast if the committed lockfile is out of date, so
+      # this step only has to prove the file is tracked and not git-ignored.
+      - name: Verify committed Cargo lockfile
         shell: bash
-        run: cargo generate-lockfile
+        run: |
+          if ! git ls-files --error-unmatch Cargo.lock >/dev/null 2>&1; then
+            echo "::error::rust/Cargo.lock is not tracked; commit it before relying on --locked."
+            exit 1
+          fi
+          if git check-ignore -q Cargo.lock; then
+            echo "::error::Cargo.lock is listed in .gitignore; remove that entry."
+            exit 1
+          fi
+          echo "Using the committed Cargo.lock."
 
       - name: Formatting
         shell: bash
@@ -60,7 +71,7 @@ jobs:
         run: |
           mkdir -p ../ci-logs
           set -o pipefail
-          cargo test --workspace --all-targets 2>&1 | tee ../ci-logs/cargo-test.log || {
+          cargo test --locked --workspace --all-targets 2>&1 | tee ../ci-logs/cargo-test.log || {
             status=${PIPESTATUS[0]}
             if [ "$status" -eq 0 ]; then status=1; fi
             echo 'Last 100 lines of cargo test output:'
@@ -74,7 +85,7 @@ jobs:
         run: |
           mkdir -p ../ci-logs
           set -o pipefail
-          cargo clippy --workspace --all-targets -- -D clippy::all 2>&1 | tee ../ci-logs/cargo-clippy.log || {
+          cargo clippy --locked --workspace --all-targets -- -D clippy::all 2>&1 | tee ../ci-logs/cargo-clippy.log || {
             status=${PIPESTATUS[0]}
             if [ "$status" -eq 0 ]; then status=1; fi
             echo 'Last 100 lines of clippy output:'
@@ -90,7 +101,7 @@ jobs:
           path: rust/Cargo.lock
           if-no-files-found: error
 
-      - name: Preserve generated Cargo lockfile
+      - name: Preserve Cargo lockfile
         if: ${{ always() }}
         shell: bash
         run: |
