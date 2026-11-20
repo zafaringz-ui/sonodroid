@@ -30,6 +30,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination
@@ -115,6 +116,12 @@ fun SonoraApp(graph: AppGraph) {
                         onSelect = { route -> navController.navigateTopLevel(route) },
                     )
                 }
+                // Debug builds only: names the active core so demo data is never
+                // mistaken for the native one.
+                CoreModeBadgeHost(
+                    selection = graph.coreSelection,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                )
             }
         },
     ) { padding ->
