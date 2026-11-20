@@ -74,7 +74,10 @@ jobs:
             echo "::notice title=wp1-aarch64::FAIL"
             echo "aarch64_failed=1" >> "$GITHUB_ENV"
           fi
-          grep -E '^(error|error\[)' /tmp/w1-aarch64.log | head -n 20 | while IFS= read -r l; do
+          # Only one annotation survives per title, so everything goes in one message.
+          body=$(tail -n 25 /tmp/w1-aarch64.log | tr '\n' '%0A' | head -c 6000)
+          echo "::error title=wp1-aarch64-tail::$body"
+          grep -E '^(error|error\[|  = note|  caused by|Caused by|note:)' /tmp/w1-aarch64.log | head -n 25 | while IFS= read -r l; do
             echo "::error title=wp1-aarch64::$l"
           done || true
           grep -oE '(vendor/sonora/crates/[a-z]+|crates/mobile-core|the following [0-9]+ packages)' /tmp/w1-aarch64.log \
@@ -92,7 +95,9 @@ jobs:
             echo "::notice title=wp1-armv7::FAIL"
             echo "armv7_failed=1" >> "$GITHUB_ENV"
           fi
-          grep -E '^(error|error\[)' /tmp/w1-armv7.log | head -n 20 | while IFS= read -r l; do
+          body=$(tail -n 25 /tmp/w1-armv7.log | tr '\n' '%0A' | head -c 6000)
+          echo "::error title=wp1-armv7-tail::$body"
+          grep -E '^(error|error\[|  = note|  caused by|Caused by|note:)' /tmp/w1-armv7.log | head -n 25 | while IFS= read -r l; do
             echo "::error title=wp1-armv7::$l"
           done || true
 
@@ -106,7 +111,9 @@ jobs:
             echo "::notice title=wp1-x86_64::FAIL"
             echo "x86_64_failed=1" >> "$GITHUB_ENV"
           fi
-          grep -E '^(error|error\[)' /tmp/w1-x86_64.log | head -n 20 | while IFS= read -r l; do
+          body=$(tail -n 25 /tmp/w1-x86_64.log | tr '\n' '%0A' | head -c 6000)
+          echo "::error title=wp1-x86_64-tail::$body"
+          grep -E '^(error|error\[|  = note|  caused by|Caused by|note:)' /tmp/w1-x86_64.log | head -n 25 | while IFS= read -r l; do
             echo "::error title=wp1-x86_64::$l"
           done || true
 
