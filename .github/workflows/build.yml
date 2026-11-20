@@ -505,8 +505,9 @@ jobs:
       - name: Default build still compiles with generated bindings present
         run: |
           set -o pipefail
+          mkdir -p ci-logs
           rm -rf android/app/build/outputs/apk/debug
-          gradle :app:assembleDebug --console=plain 2>&1 | tee ../ci-logs/gradle-default-assemble.log | tail -n 25
+          gradle :app:assembleDebug --console=plain 2>&1 | tee ci-logs/gradle-default-assemble.log | tail -n 25
           demo=$(find android/app/build/outputs/apk/debug -name '*.apk' | head -n 1)
           if [ -z "$demo" ]; then
             echo "::error::No APK from the default build"
