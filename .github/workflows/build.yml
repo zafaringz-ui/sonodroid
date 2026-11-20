@@ -185,13 +185,9 @@ jobs:
     name: Android native
     runs-on: ubuntu-latest
     env:
-      # NDK r27c. nttld/setup-ndk derives its download URL from this string and
-      # only understands the short "rNN" form: getArchString() does
-      # `version.slice(1)` then `parseInt`, so a full revision like
-      # 27.2.12479018 becomes NaN and the required "-x86_64" suffix is dropped,
-      # which yields a 404. The full revision is verified after extraction instead.
-      NDK_TAG: "r27"
+      # NDK r27c, pinned by exact revision and by archive URL.
       NDK_REVISION: "27.2.12479018"
+      NDK_URL: "https://dl.google.com/android/repository/android-ndk-r27c-linux.zip"
       CARGO_NDK_VERSION: "3.5.7"
     steps:
       - uses: actions/checkout@v4
@@ -215,43 +211,39 @@ jobs:
             x86_64-linux-android
           rustup target list --installed | grep android
 
-      # Pinned by commit SHA (v1.6.0) so the action itself cannot change under us.
-      - name: Install Android NDK
-        id: setup-ndk
-        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
-        with:
-          ndk-version: ${{ env.NDK_TAG }}
-          add-to-path: "true"
-      # The action's `ndk-path` output was observed to arrive empty on this runner
-      # (and setup-ndk itself only warns when source.properties is unreadable), so
-      # resolve the path defensively and fail on a missing file rather than on an
-      # empty variable.
-      - name: Export ANDROID_NDK_HOME
-        env:
-          NDK_OUTPUT: ${{ steps.setup-ndk.outputs.ndk-path }}
+      # nttld/setup-ndk cannot pin a revision: it derives its URL from a short
+      # "rNN" tag and skips downloading entirely when the runner already has that
+      # tag in its tool cache (the hosted image ships NDK "r27" = 27.0.12077973).
+      # Download the exact r27c archive instead and check Pkg.Revision, so the ABI
+      # build cannot silently use a different NDK than the one pinned here.
+      - name: Install Android NDK r27c
         run: |
           set -euo pipefail
-          echo "setup-ndk reported ndk-path='${NDK_OUTPUT}'"
-          ndk_path="${NDK_OUTPUT}"
-          if [ -z "$ndk_path" ] || [ ! -f "$ndk_path/source.properties" ]; then
-            echo "Falling back to a search of the runner tool cache."
-            cache_root="${RUNNER_TOOL_CACHE:-/opt/hostedtoolcache}"
-            props=$(find "$cache_root/ndk" -maxdepth 3 -name source.properties -print -quit 2>/dev/null || true)
-            if [ -z "$props" ]; then
-              echo "::error::Could not locate source.properties under $cache_root/ndk"
-              ls -la "$cache_root/ndk" 2>/dev/null || true
-              exit 1
-            fi
-            ndk_path=$(dirname "$props")
-          fi
-          echo "NDK root: $ndk_path"
-          ls "$ndk_path" | head -n 20
-          actual=$(sed -n 's/^Pkg\.Revision *= *//p' "$ndk_path/source.properties")
-          echo "NDK revision on disk: '$actual'"
-          if [ "$actual" != "$NDK_REVISION" ]; then
-            echo "::error::Expected NDK $NDK_REVISION, found '$actual'"
+          mkdir -p "$RUNNER_TEMP/ndk"
+          archive="$RUNNER_TEMP/ndk/android-ndk-r27c-linux.zip"
+          echo "Downloading android-ndk-r27c-linux.zip (${NDK_URL})"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$archive" "$NDK_URL"
+          unzip -q "$archive" -d "$RUNNER_TEMP/ndk"
+          echo "Extracted."
+          ls "$RUNNER_TEMP/ndk"
+
+      - name: Verify the NDK revision and export ANDROID_NDK_HOME
+        run: |
+          set -euo pipefail
+          ndk_path="$RUNNER_TEMP/ndk/android-ndk-r27c"
+          if [ ! -f "$ndk_path/source.properties" ]; then
+            echo "::error::No source.properties under $ndk_path"
+            ls -la "$RUNNER_TEMP/ndk"
             exit 1
           fi
+          actual=$(sed -n 's/^Pkg\.Revision *= *//p' "$ndk_path/source.properties")
+          echo "NDK root:      $ndk_path"
+          echo "Pkg.Revision:  '$actual'"
+          if [ "$actual" != "$NDK_REVISION" ]; then
+            echo "::error::Expected NDK $NDK_REVISION (r27c), found '$actual'"
+            exit 1
+          fi
+          echo "toolchain: $(ls "$ndk_path/toolchains/llvm/prebuilt" || true)"
           echo "ANDROID_NDK_HOME=$ndk_path" >> "$GITHUB_ENV"
 
       # `--locked` here pins cargo-ndk itself; it is unrelated to the project lockfile.
