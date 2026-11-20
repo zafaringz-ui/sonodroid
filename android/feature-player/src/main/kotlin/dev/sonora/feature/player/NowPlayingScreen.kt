@@ -169,9 +169,10 @@ fun NowPlayingScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            if (playback.error != null) {
+            val playbackError = playback.error
+            if (playbackError != null) {
                 Text(
-                    text = playback.error,
+                    text = playbackError,
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall,
                 )
