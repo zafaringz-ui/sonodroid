@@ -28,6 +28,10 @@ jobs:
         with:
           workspaces: rust
 
+      - name: Generate Cargo lockfile
+        shell: bash
+        run: cargo generate-lockfile
+
       - name: Formatting
         shell: bash
         run: |
@@ -77,6 +81,14 @@ jobs:
             tail -n 100 ../ci-logs/cargo-clippy.log
             exit "$status"
           }
+
+      - name: Upload Cargo lockfile
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-lock
+          path: rust/Cargo.lock
+          if-no-files-found: error
 
       - name: Preserve generated Cargo lockfile
         if: ${{ always() }}
