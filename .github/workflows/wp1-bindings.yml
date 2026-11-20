@@ -91,13 +91,27 @@ jobs:
           done
           echo "::notice title=cargo-ndk::$(cargo ndk --version 2>&1 | tail -n 1)"
 
-      # The vendored crate changes the graph (bindgen 0.72 + clang-sys), so resolve first
-      # and keep the result. This is the step that cannot be done offline.
+      # The patch is applied here, not committed yet, for one reason: the vendored crate
+      # pulls bindgen 0.72 and clang-sys into the graph, and the lockfile that keeps every
+      # `--locked` job green cannot be produced offline. Committing the patch before the
+      # lock would break all three build.yml jobs on this branch. So the patch and the
+      # resolution happen together in the runner, and the patch is committed in the follow
+      # up that also commits the resolved lock.
+      - name: Apply the vendored rquickjs-sys patch (runtime only)
+        working-directory: rust
+        run: |
+          set -euo pipefail
+          printf '\n[patch.crates-io]\n# Local patch: bindgen on by default so Android gets bindings. See\n# vendor/rquickjs-sys/VENDORED.md.\nrquickjs-sys = { path = "vendor/rquickjs-sys" }\n' >> Cargo.toml
+          tail -n 5 Cargo.toml
+          echo "::notice title=patch::applied at runtime, not committed"
+
+      # Now the resolution has real work to do: bindgen + clang-sys enter the graph, and
+      # rquickjs-sys loses its registry source because it is a path dependency.
       - name: Resolve the lockfile with the bindgen graph
         working-directory: rust
         timeout-minutes: 15
         run: |
-          set -o pipefail
+          set -euo pipefail
           cp Cargo.lock /tmp/Cargo.lock.before
           if cargo metadata --format-version 1 > /tmp/metadata.json 2> /tmp/resolve.log; then
             echo "::notice title=resolve::ok"
@@ -105,10 +119,12 @@ jobs:
             echo "::error title=resolve::FAILED — see resolve-tail"
           fi
           echo "::notice title=resolve-tail::$(tail -n 20 /tmp/resolve.log | tr '\n' '%0A' | head -c 6000)"
-          added=$(diff <(grep '^name = ' /tmp/Cargo.lock.before) <(grep '^name = ' Cargo.lock) \
-                  | grep '^>' | sed 's/^> name = //' | tr -d '"' | sort -u | tr '\n' ' ')
+          # `diff` exits 1 when it finds differences, and this step runs under bash -e with
+          # pipefail, so the comparison must not be allowed to abort the step.
+          added=$(diff <(grep '^name = ' /tmp/Cargo.lock.before) <(grep '^name = ' Cargo.lock) 2>/dev/null | grep '^>' | sed 's/^> name = //' | tr -d '"' | sort -u | tr '\n' ' ' || true)
           echo "::notice title=lock-added::${added:-none}"
-          echo "::notice title=lock-diffstat::$(git diff --stat Cargo.lock | tr '\n' ' ')"
+          echo "::notice title=lock-diffstat::$(git diff --stat Cargo.lock | tr '\n' ' ' || true)"
+          echo "::notice title=lock-rqjs::$(grep -A3 '^name = "rquickjs-sys"' Cargo.lock | tr '\n' ' ' || true)"
 
       - uses: actions/upload-artifact@v4
         with:
