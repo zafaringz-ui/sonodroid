@@ -1,5 +1,6 @@
 package dev.sonora.core.lyrics
 
+import dev.sonora.core.model.LyricLine
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
