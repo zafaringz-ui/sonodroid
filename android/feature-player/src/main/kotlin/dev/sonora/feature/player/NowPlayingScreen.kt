@@ -157,13 +157,6 @@ fun NowPlayingScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (track.provider == dev.sonora.core.model.Provider.DEEZER && track.previewUrl != null) {
-                        Text(
-                            text = "30 s preview",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
                 }
                 LikeButton()
             }

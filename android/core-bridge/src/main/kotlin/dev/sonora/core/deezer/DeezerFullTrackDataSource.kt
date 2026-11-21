@@ -9,53 +9,14 @@ import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 
-/** Routes public preview URLs to HTTP and opaque Sonora URIs to authenticated/decrypted audio. */
+/** Only authenticated full-track Sonora URIs are accepted; there is no preview URL fallback. */
 internal class DeezerRoutingDataSourceFactory(
-    private val previewFactory: DataSource.Factory,
     private val account: DeezerPrivateSession,
 ) : DataSource.Factory {
-    override fun createDataSource(): DataSource = RoutingDataSource(previewFactory, account)
+    override fun createDataSource(): DataSource = DeezerFullTrackDataSource(account)
 }
 
-private class RoutingDataSource(
-    private val previewFactory: DataSource.Factory,
-    private val account: DeezerPrivateSession,
-) : DataSource {
-    private var active: DataSource? = null
-    private val listeners = mutableListOf<TransferListener>()
-
-    override fun addTransferListener(transferListener: TransferListener) {
-        listeners += transferListener
-        active?.addTransferListener(transferListener)
-    }
-
-    override fun open(dataSpec: DataSpec): Long {
-        val source = if (dataSpec.uri.scheme == SCHEME) {
-            DeezerFullTrackDataSource(account)
-        } else {
-            previewFactory.createDataSource()
-        }
-        listeners.forEach(source::addTransferListener)
-        active = source
-        return source.open(dataSpec)
-    }
-
-    override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
-        active?.read(buffer, offset, length) ?: C.RESULT_END_OF_INPUT
-
-    override fun getUri(): Uri? = active?.uri
-
-    override fun getResponseHeaders(): Map<String, List<String>> = active?.responseHeaders.orEmpty()
-
-    override fun close() {
-        active?.close()
-        active = null
-    }
-
-    private companion object { const val SCHEME = "sonora" }
-}
-
-/** Fetches a full encrypted track, decrypts stripes in memory and exposes only the clear bytes. */
+/** Fetches and decrypts a full track in memory, then serves requested byte ranges. */
 private class DeezerFullTrackDataSource(
     private val account: DeezerPrivateSession,
 ) : DataSource {
@@ -68,6 +29,7 @@ private class DeezerFullTrackDataSource(
 
     override fun open(dataSpec: DataSpec): Long {
         uri = dataSpec.uri
+        if (dataSpec.uri.scheme != "sonora") throw IOException("Only signed-in Deezer full-track playback is supported.")
         val trackId = dataSpec.uri.lastPathSegment.orEmpty().removeSuffix(".mp3")
         if (trackId.isBlank() || !trackId.all { it.isDigit() || it == '-' }) {
             throw IOException("Invalid Deezer track identifier.")

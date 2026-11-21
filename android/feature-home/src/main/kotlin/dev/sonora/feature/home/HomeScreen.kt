@@ -109,8 +109,9 @@ fun HomeScreen(
                         style = MaterialTheme.typography.headlineLarge,
                     )
                     Text(
-                        text = if (state.isPublicMode) {
-                            if (Provider.DEEZER in state.signedIn) "Deezer account connected · full tracks" else "Public Deezer previews · sign in for full tracks"
+                        text = if (state.isAccountMode) {
+                            if (Provider.DEEZER in state.signedIn) "Deezer account connected · full tracks"
+                            else "Sign in to Deezer to browse and play full tracks"
                         } else "Listen across Deezer and YouTube Music",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -127,7 +128,7 @@ fun HomeScreen(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Provider.entries.forEach { provider ->
+                (if (state.isAccountMode) listOf(Provider.DEEZER) else Provider.entries).forEach { provider ->
                     FilterChip(
                         selected = provider == state.selected,
                         onClick = { onSelectProvider(provider) },
@@ -141,7 +142,7 @@ fun HomeScreen(
             }
         }
 
-        if (state.selected !in state.signedIn && (!state.isPublicMode || state.selected == Provider.DEEZER)) {
+        if (state.selected !in state.signedIn && (!state.isAccountMode || state.selected == Provider.DEEZER)) {
             item(key = "signin-prompt") {
                 SignInPrompt(provider = state.selected, onSignIn = onSignIn)
             }

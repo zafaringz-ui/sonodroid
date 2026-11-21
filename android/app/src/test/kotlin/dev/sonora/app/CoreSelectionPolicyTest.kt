@@ -95,12 +95,12 @@ class CoreSelectionPolicyTest {
     }
 
     @Test
-    fun `debug public mode has an explicit non-demo label`() {
-        val selection = CoreSelectionPolicy.deezerPublic()
+    fun `account client has an explicit non-demo label`() {
+        val selection = CoreSelectionPolicy.deezerAccount()
 
-        assertEquals(CoreMode.DEEZER_PUBLIC, selection.mode)
+        assertEquals(CoreMode.DEEZER_ACCOUNT, selection.mode)
         assertNull(selection.reason)
-        assertEquals("Deezer public catalog", selection.label)
+        assertEquals("Deezer account client", selection.label)
     }
 
     @Test
@@ -117,7 +117,7 @@ class CoreSelectionPolicyTest {
             CoreSelectionPolicy.LABEL_DEMO,
             CoreSelectionPolicy.LABEL_RUST_FIXTURES,
             CoreSelectionPolicy.LABEL_RUST_LIVE,
-            CoreSelectionPolicy.LABEL_DEEZER_PUBLIC,
+            CoreSelectionPolicy.LABEL_DEEZER_ACCOUNT,
         )
 
         assertEquals(4, labels.size)

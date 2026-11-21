@@ -20,8 +20,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
-private const val PREVIEW_DURATION_US = 30_000_000L
-
 /**
  * Media3 adapter over the Sonora core.
  *
@@ -58,7 +56,13 @@ class SonoraPlayer(
                 .setMediaItem(
                     MediaItem.Builder()
                         .setMediaId(track.id)
-                        .setUri(track.previewUrl)
+                        .setUri(
+                            Uri.Builder()
+                                .scheme("sonora")
+                                .authority("track")
+                                .appendPath(track.id)
+                                .build(),
+                        )
                         .setMediaMetadata(
                             MediaMetadata.Builder()
                                 .setTitle(track.title)
@@ -71,7 +75,7 @@ class SonoraPlayer(
                         )
                         .build(),
                 )
-                .setDurationUs(if (track.previewUrl != null) PREVIEW_DURATION_US else track.durationMs * 1_000L)
+                .setDurationUs(track.durationMs * 1_000L)
                 .build()
         }
 

@@ -26,14 +26,22 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.compose.AsyncImage
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.sonora.core.SonoraCoreClient
 import dev.sonora.design.component.EmptyState
 import dev.sonora.design.theme.SonoraTheme
+import dev.sonora.design.theme.SonoraUiPreferences
 
 @Composable
 fun LyricsRoute(
@@ -63,6 +71,8 @@ fun LyricsScreen(
     modifier: Modifier = Modifier,
 ) {
     val colors = SonoraTheme.colors
+    val karaokeWords by SonoraUiPreferences.karaokeWords.collectAsStateWithLifecycle()
+    val lyricsArtwork by SonoraUiPreferences.lyricsArtwork.collectAsStateWithLifecycle()
     val lyrics = state.lyrics
     val activeIndex = if (lyrics == null) -1 else lyrics.activeLineIndex(state.playback.positionMs)
     val listState = rememberLazyListState()
@@ -73,11 +83,26 @@ fun LyricsScreen(
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(colors.nowPlayingBottom),
-    ) {
+    Box(modifier = modifier.fillMaxSize()) {
+        if (lyricsArtwork) state.playback.track?.artworkUrl?.takeIf(String::isNotBlank)?.let { artwork ->
+            AsyncImage(
+                model = artwork,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                alpha = 0.30f,
+                modifier = Modifier.fillMaxSize().blur(36.dp),
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(colors.nowPlayingTop.copy(alpha = 0.82f), colors.nowPlayingBottom.copy(alpha = 0.94f)),
+                    ),
+                ),
+        )
+        Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -119,7 +144,7 @@ fun LyricsScreen(
 
             lyrics == null || lyrics.lines.none { it.text.isNotBlank() } -> EmptyState(
                 title = "No lyrics yet",
-                body = "Sonora asks the provider first, then LRCLIB, Musixmatch, NetEase and KuGou.",
+                body = "Lyrics are looked up in LRCLIB. Word timing is estimated from synced lines when the source has no word-level timestamps.",
                 icon = Icons.Rounded.Lyrics,
             )
 
@@ -135,19 +160,39 @@ fun LyricsScreen(
             ) {
                 itemsIndexed(lyrics.lines) { index, line ->
                     val isActive = index == activeIndex
+                    val activeWord = line.activeWordIndex(state.playback.positionMs)
+                    val activeColor = MaterialTheme.colorScheme.primary
+                    val inactiveColor = MaterialTheme.colorScheme.onSurface
+                    val lyricText = if (!karaokeWords || line.words.isEmpty()) {
+                        androidx.compose.ui.text.AnnotatedString(line.text.ifBlank { "♪" })
+                    } else {
+                        buildAnnotatedString {
+                            line.words.forEachIndexed { wordIndex, word ->
+                                withStyle(
+                                    SpanStyle(
+                                        color = if (wordIndex == activeWord && isActive) {
+                                            activeColor
+                                        } else {
+                                            inactiveColor.copy(alpha = if (isActive) 0.9f else 0.52f)
+                                        },
+                                    ),
+                                ) { append(word.text) }
+                            }
+                        }
+                    }
                     Text(
-                        text = line.text.ifBlank { "♪" },
+                        text = lyricText,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
                         color = if (isActive) {
-                            MaterialTheme.colorScheme.primary
+                            activeColor
                         } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                            inactiveColor.copy(alpha = 0.55f)
                         },
                         textAlign = TextAlign.Start,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable(enabled = line.text.isNotBlank()) {
+                            .clickable(enabled = lyrics.synced && line.text.isNotBlank()) {
                                 onSeekToLine(line.timeMs)
                             }
                             .padding(vertical = 10.dp),
@@ -155,5 +200,6 @@ fun LyricsScreen(
                 }
             }
         }
+    }
     }
 }

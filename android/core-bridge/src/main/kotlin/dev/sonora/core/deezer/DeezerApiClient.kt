@@ -91,7 +91,7 @@ class DeezerApiClient internal constructor(
 
     companion object {
         const val API_ROOT = "https://api.deezer.com"
-        const val USER_AGENT = "SonoraAndroid/0.1 (public catalog; Android)"
+        const val USER_AGENT = "SonoraAndroid/0.1 (account client; Android)"
         const val RATE_LIMIT_CODE = 4
         const val MAX_RATE_LIMIT_RETRIES = 2
         const val BASE_BACKOFF_MS = 1_000L

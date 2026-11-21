@@ -1,6 +1,7 @@
 package dev.sonora.design.theme
 
 import androidx.compose.material3.Typography
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -97,6 +98,24 @@ val SonoraTypography = Typography(
         lineHeight = 14.sp,
         letterSpacing = 0.5.sp,
     ),
+)
+
+fun sonoraTypography(fontFamily: FontFamily): Typography = SonoraTypography.copy(
+    displayLarge = SonoraTypography.displayLarge.copy(fontFamily = fontFamily),
+    displayMedium = SonoraTypography.displayMedium.copy(fontFamily = fontFamily),
+    displaySmall = SonoraTypography.displaySmall.copy(fontFamily = fontFamily),
+    headlineLarge = SonoraTypography.headlineLarge.copy(fontFamily = fontFamily),
+    headlineMedium = SonoraTypography.headlineMedium.copy(fontFamily = fontFamily),
+    headlineSmall = SonoraTypography.headlineSmall.copy(fontFamily = fontFamily),
+    titleLarge = SonoraTypography.titleLarge.copy(fontFamily = fontFamily),
+    titleMedium = SonoraTypography.titleMedium.copy(fontFamily = fontFamily),
+    titleSmall = SonoraTypography.titleSmall.copy(fontFamily = fontFamily),
+    bodyLarge = SonoraTypography.bodyLarge.copy(fontFamily = fontFamily),
+    bodyMedium = SonoraTypography.bodyMedium.copy(fontFamily = fontFamily),
+    bodySmall = SonoraTypography.bodySmall.copy(fontFamily = fontFamily),
+    labelLarge = SonoraTypography.labelLarge.copy(fontFamily = fontFamily),
+    labelMedium = SonoraTypography.labelMedium.copy(fontFamily = fontFamily),
+    labelSmall = SonoraTypography.labelSmall.copy(fontFamily = fontFamily),
 )
 
 /** Shared spacing and motion tokens. */

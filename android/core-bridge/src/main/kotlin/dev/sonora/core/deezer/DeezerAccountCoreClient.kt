@@ -11,10 +11,9 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.datasource.DefaultHttpDataSource
 import dev.sonora.core.DeezerAccountSession
 import dev.sonora.core.DeezerArtistTopTracks
-import dev.sonora.core.PublicCatalogClient
+import dev.sonora.core.Media3PlayerClient
 import dev.sonora.core.SonoraCoreClient
 import dev.sonora.core.model.AccountSummary
 import dev.sonora.core.model.Album
@@ -58,26 +57,19 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 
-/** Public-catalog client used in debug builds; optional sign-in adds full-track playback. */
-class DeezerPublicCoreClient(
+/** Deezer account client. Catalog access and all playback require a validated signed-in session. */
+class DeezerAccountCoreClient(
     context: Context,
     private val scope: CoroutineScope,
     private val api: DeezerApiClient = DeezerApiClient(),
-) : SonoraCoreClient, DeezerArtistTopTracks, PublicCatalogClient, DeezerAccountSession {
+) : SonoraCoreClient, DeezerArtistTopTracks, Media3PlayerClient, DeezerAccountSession {
     private val account = DeezerPrivateSession()
     private val lyricsRepository = LyricsRepository()
     override val media3Player: Player get() = player
+    override val isSignedIn: Boolean get() = account.isConnected()
     private val player = ExoPlayer.Builder(context.applicationContext)
         .setMediaSourceFactory(
-            DefaultMediaSourceFactory(
-                DeezerRoutingDataSourceFactory(
-                    DefaultHttpDataSource.Factory()
-                        .setUserAgent(DeezerApiClient.USER_AGENT)
-                        .setConnectTimeoutMs(10_000)
-                        .setReadTimeoutMs(15_000),
-                    account,
-                ),
-            ),
+            DefaultMediaSourceFactory(DeezerRoutingDataSourceFactory(account)),
         )
         .build().apply {
         setAudioAttributes(
@@ -118,9 +110,8 @@ class DeezerPublicCoreClient(
                     isPlaying = false,
                     error = when {
                         network == NetworkKind.OFFLINE -> "You are offline. Reconnect and try again."
-                        !account.isConnected() && track?.previewUrl.isNullOrBlank() -> "This track has no 30-second preview. Sign in to try full-track playback."
-                        account.isConnected() -> "The full track could not be played. Your Deezer session may have expired; sign in again."
-                        else -> "The preview could not be played. It may have expired; try again."
+                        !account.isConnected() -> "Sign in to Deezer again to continue full-track playback."
+                        else -> "The full track could not be played. Your Deezer session may have expired; sign in again."
                     },
                 )
                 emit(CoreEvent.Failure(_playback.value.error.orEmpty()))
@@ -163,7 +154,7 @@ class DeezerPublicCoreClient(
         val term = query.trim()
         if (term.isEmpty()) return SearchResults(Provider.DEEZER, term)
         if (filter == SearchFilter.PLAYLISTS || filter == SearchFilter.VIDEOS) {
-            throw PublicModeUnavailableException("Playlist and video search are not available in public mode.")
+            throw AccountFeatureUnavailableException("Playlist and video search are not wired into this Android account client yet.")
         }
         val includeTracks = filter == SearchFilter.ALL || filter == SearchFilter.TRACKS
         val includeAlbums = filter == SearchFilter.ALL || filter == SearchFilter.ALBUMS
@@ -197,16 +188,25 @@ class DeezerPublicCoreClient(
 
     /** Available for callers that add an artist-detail screen; the current UI has no such route. */
     override suspend fun artistTopTracks(artistId: String): List<Track> {
+        requireSignedIn()
         requireValidId(artistId)
         return api.get("artist/$artistId/top", mapOf("limit" to "20"))
             .array("data").orEmpty().mapNotNull { it.asObject()?.toTrack() }
     }
 
-    override suspend fun library(provider: Provider): LibrarySnapshot =
-        throw PublicModeUnavailableException("Library and downloads are not available in public mode.")
-    override suspend fun playlist(provider: Provider, playlistId: String): PlaylistDetail = unavailable("Playlists")
+    override suspend fun library(provider: Provider): LibrarySnapshot {
+        requireDeezer(provider)
+        throw AccountFeatureUnavailableException("Your Deezer library is not wired into this Android build yet.")
+    }
+
+    override suspend fun playlist(provider: Provider, playlistId: String): PlaylistDetail {
+        requireDeezer(provider)
+        return unavailable("Playlists")
+    }
+
     override suspend fun lyrics(trackId: String): Lyrics? {
-        val track = _queue.value.firstOrNull { it.id == trackId } ?: return null
+        requireSignedIn()
+        val track = _queue.value.firstOrNull { it.id == trackId } ?: _playback.value.track?.takeIf { it.id == trackId } ?: return null
         if (track.provider != Provider.DEEZER) return null
         return lyricsRepository.lyrics(
             LyricsQuery(
@@ -220,7 +220,12 @@ class DeezerPublicCoreClient(
     }
 
     override fun beginSignIn(provider: Provider) {
-        emit(CoreEvent.Message(if (provider == Provider.DEEZER) "Continue Deezer sign-in in the secure WebView." else "Sign-in is not available in public mode."))
+        emit(
+            CoreEvent.Message(
+                if (provider == Provider.DEEZER) "Continue Deezer sign-in in the secure WebView."
+                else "This Android account client currently supports Deezer only.",
+            ),
+        )
     }
 
     override suspend fun signIn(arl: String) {
@@ -256,7 +261,7 @@ class DeezerPublicCoreClient(
         provider: Provider,
         accountLabel: String,
         plan: PlanTier,
-    ): Result<Unit> = Result.failure(PublicModeUnavailableException("Sign-in is not available in public mode."))
+    ): Result<Unit> = Result.failure(AccountFeatureUnavailableException("Use the secure Deezer sign-in flow for this account client."))
 
     override suspend fun signOut(provider: Provider) {
         if (provider == Provider.DEEZER) signOut()
@@ -278,51 +283,54 @@ class DeezerPublicCoreClient(
         preferences[provider] ?: QualityPreference.AUTO
 
     override fun qualityLadder(provider: Provider): List<StreamQuality> =
-        if (provider == Provider.DEEZER) listOf(if (account.isConnected()) FULL_QUALITY else PREVIEW_QUALITY) else emptyList()
+        if (provider == Provider.DEEZER && account.isConnected()) listOf(FULL_QUALITY) else emptyList()
 
     override fun resolvedQuality(provider: Provider, purpose: StreamPurpose): StreamQuality? =
-        when {
-            provider != Provider.DEEZER || purpose != StreamPurpose.STREAMING -> null
-            account.isConnected() -> FULL_QUALITY
-            else -> PREVIEW_QUALITY
+        if (provider == Provider.DEEZER && purpose == StreamPurpose.STREAMING && account.isConnected()) {
+            FULL_QUALITY
+        } else {
+            null
         }
 
     override fun playTracks(tracks: List<Track>, startIndex: Int) {
         if (tracks.isEmpty()) return
-        val selected = tracks.getOrNull(startIndex.coerceIn(tracks.indices)) ?: tracks.first()
-        val useFullTracks = account.isConnected()
-        if (!useFullTracks && selected.previewUrl.isNullOrBlank()) {
+        val selectedIndex = startIndex.coerceIn(tracks.indices)
+        val selected = tracks[selectedIndex]
+        if (!account.isConnected()) {
             player.pause()
             player.clearMediaItems()
             _queue.value = emptyList()
             _playback.value = PlaybackState(
                 track = selected,
-                queueIndex = 0,
-                queueSize = 0,
                 durationMs = selected.durationMs,
-                error = "This track has no 30-second preview. Choose another track.",
+                error = "Sign in to your Deezer account to play full tracks.",
             )
             emit(CoreEvent.PlaybackChanged(_playback.value))
             return
         }
-        val playable = tracks.filter { useFullTracks || !it.previewUrl.isNullOrBlank() }
-        val currentIndex = playable.indexOfFirst { it.id == selected.id }.coerceAtLeast(0)
-        val queueTracks = if (useFullTracks) playable.map { it.copy(previewUrl = null) } else playable
-        _queue.value = queueTracks
-        val items = playable.map { track -> buildMediaItem(track, useFullTracks) }
-        player.setMediaItems(items, currentIndex, 0L)
-        player.prepare()
+        _queue.value = tracks
+        val items = tracks.map(::buildMediaItem)
+        player.setMediaItems(items, selectedIndex, 0L)
         if (network == NetworkKind.OFFLINE) {
-            _playback.value = PlaybackState(track = selected, queueIndex = currentIndex, queueSize = playable.size, error = "You are offline. Reconnect and try again.")
+            player.pause()
+            _playback.value = PlaybackState(
+                track = selected,
+                queueIndex = selectedIndex,
+                queueSize = tracks.size,
+                error = OFFLINE_MESSAGE,
+            )
         } else {
+            player.prepare()
             player.play()
         }
         syncPlayback()
-        emit(CoreEvent.QueueChanged(playable.size, currentIndex))
+        emit(CoreEvent.QueueChanged(tracks.size, selectedIndex))
     }
 
     override fun playQueueIndex(index: Int) {
+        if (blockPlaybackWithoutAccount()) return
         if (index !in _queue.value.indices || index !in 0 until player.mediaItemCount) return
+        if (blockOfflinePlayback()) return
         _playback.value = _playback.value.copy(error = null)
         player.seekTo(index, 0L)
         player.prepare()
@@ -331,6 +339,7 @@ class DeezerPublicCoreClient(
 
     override fun playPause() {
         if (_playback.value.track == null || player.mediaItemCount == 0) return
+        if (blockPlaybackWithoutAccount() || blockOfflinePlayback()) return
         _playback.value = _playback.value.copy(error = null)
         if (player.isPlaying) player.pause() else {
             if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED || player.playerError != null) player.prepare()
@@ -338,9 +347,20 @@ class DeezerPublicCoreClient(
         }
     }
 
-    override fun next() = player.seekToNextMediaItem()
-    override fun previous() = if (player.currentPosition > 3_000L) player.seekTo(0L) else player.seekToPreviousMediaItem()
-    override fun seekTo(positionMs: Long) = player.seekTo(positionMs.coerceAtLeast(0L))
+    override fun next() {
+        if (blockPlaybackWithoutAccount() || blockOfflinePlayback()) return
+        player.seekToNextMediaItem()
+    }
+
+    override fun previous() {
+        if (blockPlaybackWithoutAccount() || blockOfflinePlayback()) return
+        if (player.currentPosition > 3_000L) player.seekTo(0L) else player.seekToPreviousMediaItem()
+    }
+
+    override fun seekTo(positionMs: Long) {
+        if (blockPlaybackWithoutAccount() || blockOfflinePlayback()) return
+        player.seekTo(positionMs.coerceAtLeast(0L))
+    }
     override fun setRepeat(mode: RepeatMode) {
         player.repeatMode = when (mode) {
             RepeatMode.OFF -> Player.REPEAT_MODE_OFF
@@ -370,17 +390,30 @@ class DeezerPublicCoreClient(
         if (list.isEmpty()) _playback.value = PlaybackState() else syncPlayback()
     }
     override fun addToQueue(track: Track, playNext: Boolean) {
-        val useFullTracks = account.isConnected()
-        if (!useFullTracks && track.previewUrl.isNullOrBlank()) {
-            _playback.value = _playback.value.copy(error = "This track has no 30-second preview. Sign in for full tracks.")
-            return
-        }
+        if (blockPlaybackWithoutAccount()) return
         val at = if (playNext) (player.currentMediaItemIndex + 1).coerceAtLeast(0) else player.mediaItemCount
-        val queuedTrack = if (useFullTracks) track.copy(previewUrl = null) else track
-        _queue.value = _queue.value.toMutableList().apply { add(at.coerceAtMost(size), queuedTrack) }
-        player.addMediaItem(at, buildMediaItem(track, useFullTracks))
+        _queue.value = _queue.value.toMutableList().apply { add(at.coerceAtMost(size), track) }
+        player.addMediaItem(at, buildMediaItem(track))
         syncPlayback()
     }
+
+    private fun blockPlaybackWithoutAccount(): Boolean {
+        if (account.isConnected()) return false
+        player.pause()
+        _playback.value = _playback.value.copy(
+            isPlaying = false,
+            error = "Sign in to your Deezer account to play full tracks.",
+        )
+        return true
+    }
+
+    private fun blockOfflinePlayback(): Boolean {
+        if (network != NetworkKind.OFFLINE) return false
+        player.pause()
+        _playback.value = _playback.value.copy(isPlaying = false, error = OFFLINE_MESSAGE)
+        return true
+    }
+
     override fun setVolume(volume: Float) { player.volume = volume.coerceIn(0f, 1f) }
     override fun setCrossfade(seconds: Int) = Unit
 
@@ -396,7 +429,7 @@ class DeezerPublicCoreClient(
         val track = _queue.value.getOrNull(index)
         if (track == null) {
             val previous = _playback.value.track
-            if (player.mediaItemCount == 0 && previous?.previewUrl.isNullOrBlank()) return
+            if (player.mediaItemCount == 0 && _playback.value.error != null) return
             if (previous != null) _playback.value = PlaybackState()
             return
         }
@@ -410,7 +443,7 @@ class DeezerPublicCoreClient(
             isPlaying = player.isPlaying,
             positionMs = player.currentPosition.coerceAtLeast(0),
             durationMs = player.duration.takeIf { it != C.TIME_UNSET }?.coerceAtLeast(0)
-                ?: if (account.isConnected()) track.durationMs else PREVIEW_DURATION_MS,
+                ?: track.durationMs,
             bufferedMs = player.bufferedPosition.coerceAtLeast(0),
             repeat = repeat,
             shuffle = player.shuffleModeEnabled,
@@ -423,7 +456,16 @@ class DeezerPublicCoreClient(
     }
 
     private fun requireDeezer(provider: Provider) {
-        if (provider != Provider.DEEZER) throw PublicModeUnavailableException("${provider.label} is not available in public mode.")
+        if (provider != Provider.DEEZER) {
+            throw AccountFeatureUnavailableException("${provider.label} is not connected in this Android build.")
+        }
+        requireSignedIn()
+    }
+
+    private fun requireSignedIn() {
+        if (!account.isConnected()) {
+            throw AccountFeatureUnavailableException("Sign in to Deezer to browse and play music.")
+        }
     }
 
     private fun requireValidId(id: String) {
@@ -431,21 +473,13 @@ class DeezerPublicCoreClient(
     }
 
     private suspend fun <T> unavailable(feature: String): T =
-        throw PublicModeUnavailableException("$feature are not available in public mode.")
+        throw AccountFeatureUnavailableException("$feature are not available in this Android account client yet.")
 
     private fun emit(event: CoreEvent) { _events.tryEmit(event) }
 
     private companion object {
         const val SEARCH_LIMIT = 25
-        const val PREVIEW_DURATION_MS = 30_000L
-        val PREVIEW_QUALITY = StreamQuality(
-            tier = QualityTier.NORMAL,
-            codec = "MP3",
-            bitrateKbps = 128,
-            sampleRateHz = 44_100,
-            bitDepth = 16,
-            label = "Deezer preview · 30 s",
-        )
+        const val OFFLINE_MESSAGE = "You are offline. Reconnect and try again."
         val FULL_QUALITY = StreamQuality(
             tier = QualityTier.NORMAL,
             codec = "MP3",
@@ -457,15 +491,17 @@ class DeezerPublicCoreClient(
     }
 }
 
-private fun buildMediaItem(track: Track, fullTrack: Boolean): MediaItem {
-    val uri = if (fullTrack) {
-        Uri.Builder().scheme("sonora").authority("deezer").appendPath("full").appendPath("${track.id}.mp3").build()
-    } else {
-        Uri.parse(track.previewUrl.orEmpty())
-    }
-    val builder = MediaItem.Builder()
+private fun buildMediaItem(track: Track): MediaItem {
+    val uri = Uri.Builder()
+        .scheme("sonora")
+        .authority("deezer")
+        .appendPath("full")
+        .appendPath("${track.id}.mp3")
+        .build()
+    return MediaItem.Builder()
         .setMediaId(track.id)
         .setUri(uri)
+        .setMimeType(MimeTypes.AUDIO_MPEG)
         .setMediaMetadata(
             MediaMetadata.Builder()
                 .setTitle(track.title)
@@ -475,13 +511,12 @@ private fun buildMediaItem(track: Track, fullTrack: Boolean): MediaItem {
                 .setIsPlayable(true)
                 .build(),
         )
-    if (fullTrack) builder.setMimeType(MimeTypes.AUDIO_MPEG)
-    return builder.build()
+        .build()
 }
 
-class PublicModeUnavailableException(message: String) : IllegalStateException(message)
+class AccountFeatureUnavailableException(message: String) : IllegalStateException(message)
 
-private fun JsonObject.toTrack(
+internal fun JsonObject.toTrack(
     albumIdOverride: String? = null,
     albumTitleOverride: String? = null,
     albumArtworkOverride: String? = null,
@@ -503,7 +538,6 @@ private fun JsonObject.toTrack(
             ?: albumArtworkOverride
             ?: artist?.bestImage("picture_xl", "picture_big", "picture"),
         isExplicit = bool("explicit_lyrics") ?: false,
-        previewUrl = string("preview")?.takeIf(String::isNotBlank),
     )
 }
 

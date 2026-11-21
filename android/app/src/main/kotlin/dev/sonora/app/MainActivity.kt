@@ -35,8 +35,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val accent by SonoraUiPreferences.accent.collectAsStateWithLifecycle()
             val dynamicColor by SonoraUiPreferences.dynamicColor.collectAsStateWithLifecycle()
+            val font by SonoraUiPreferences.font.collectAsStateWithLifecycle()
 
-            SonoraTheme(accent = accent, dynamicColor = dynamicColor) {
+            SonoraTheme(accent = accent, dynamicColor = dynamicColor, font = font) {
                 SonoraApp(graph = graph)
             }
         }

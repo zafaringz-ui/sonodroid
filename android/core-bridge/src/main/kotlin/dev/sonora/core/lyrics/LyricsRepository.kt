@@ -16,6 +16,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import dev.sonora.core.model.LyricLine
+import dev.sonora.core.model.LyricWord
 import dev.sonora.core.model.Lyrics
 
 /** Metadata used to search independent lyrics catalogues for a provider track. */
@@ -107,13 +108,15 @@ internal class LrcLibProvider(
         val album = string("albumName")?.takeIf(String::isNotBlank)
         val duration = number("duration")?.let { (it * 1_000.0).toLong() }
         val syncedLines = string("syncedLyrics")?.let(::parseLrc).orEmpty()
+        val timingDuration = duration?.let { (it * 1_000.0).toLong() } ?: query.durationMs
+        val wordedLines = estimateWordTimings(syncedLines, timingDuration)
         val plainLines = string("plainLyrics")?.lineSequence()
             ?.map(String::trimEnd)
             ?.filter(String::isNotBlank)
             ?.map { LyricLine(timeMs = 0L, text = it) }
             ?.toList()
             .orEmpty()
-        val lines = syncedLines.ifEmpty { plainLines }
+        val lines = wordedLines.ifEmpty { plainLines }
         if (lines.isEmpty()) return null
         return LyricsCandidate(
             source = SOURCE,
@@ -254,18 +257,58 @@ internal fun parseLrc(input: String): List<LyricLine> {
         }
         if (stamps.isEmpty()) continue
         rest = removeTrailingEndStamp(rest)
-        val text = removeWordTimestamps(rest).trim()
+        val parsed = parseWordTimedText(rest)
+        val text = parsed.first.trim()
         if (text.isEmpty()) continue
         for (stamp in stamps) {
-            lines += LyricLine(timeMs = (stamp - offsetMs).coerceAtLeast(0L), text = text)
+            val lineTime = (stamp - offsetMs).coerceAtLeast(0L)
+            val words = parsed.second.map { word ->
+                word.copy(
+                    startMs = (word.startMs - offsetMs).coerceAtLeast(0L),
+                    endMs = (word.endMs - offsetMs).coerceAtLeast(0L),
+                )
+            }.let { wordList ->
+                val drift = wordList.firstOrNull()?.startMs?.let { first -> (lineTime - first).coerceAtLeast(0L) } ?: 0L
+                if (drift == 0L) wordList else wordList.map { word ->
+                    word.copy(startMs = (word.startMs + drift).coerceAtLeast(0L), endMs = (word.endMs + drift).coerceAtLeast(0L))
+                }
+            }
+            lines += LyricLine(timeMs = lineTime, text = text, words = words)
         }
     }
     return lines.sortedBy(LyricLine::timeMs)
 }
 
+/**
+ * Preserve source word stamps when present. For ordinary line-synced LRC, spread each
+ * line's interval across its words by character count, matching Sonora's shape fallback.
+ */
+internal fun estimateWordTimings(lines: List<LyricLine>, durationMs: Long): List<LyricLine> =
+    lines.mapIndexed { index, line ->
+        if (line.words.isNotEmpty()) return@mapIndexed line
+        val matches = Regex("\\S+").findAll(line.text).toList()
+        if (matches.isEmpty()) return@mapIndexed line
+        val nextLineTime = lines.getOrNull(index + 1)?.timeMs
+        val endMs = nextLineTime?.takeIf { it > line.timeMs }
+            ?: durationMs.takeIf { it > line.timeMs }
+            ?: return@mapIndexed line
+        val span = endMs - line.timeMs
+        val weights = matches.map { match -> match.value.codePointCount(0, match.value.length).coerceAtLeast(1) }
+        val total = weights.sum().toFloat()
+        var passed = 0
+        val words = matches.mapIndexed { wordIndex, match ->
+            val start = line.timeMs + (span * (passed / total)).toLong()
+            passed += weights[wordIndex]
+            val end = if (wordIndex == matches.lastIndex) endMs
+                else line.timeMs + (span * (passed / total)).toLong()
+            val textEnd = matches.getOrNull(wordIndex + 1)?.range?.first ?: line.text.length
+            LyricWord(start, maxOf(start, end), line.text.substring(match.range.first, textEnd))
+        }
+        line.copy(words = words)
+    }
+
 private val OFFSET = Regex("^\\[offset:([+-]?\\d+)]$", RegexOption.IGNORE_CASE)
 private val END_STAMP = Regex("\\[([^]]+)]$")
-private val INLINE_STAMP = Regex("<([^>]+)>")
 
 private fun removeTrailingEndStamp(text: String): String {
     val match = END_STAMP.find(text.trimEnd()) ?: return text
@@ -273,8 +316,56 @@ private fun removeTrailingEndStamp(text: String): String {
     return text.substring(0, match.range.first).trimEnd()
 }
 
-private fun removeWordTimestamps(text: String): String = INLINE_STAMP.replace(text) { match ->
-    if (parseLrcTimestamp(match.groupValues[1]) == null) match.value else ""
+/** Parse Sonora's word-timed LRC form: [line] <word-start>word <next-start>word. */
+private fun parseWordTimedText(source: String): Pair<String, List<LyricWord>> {
+    data class Segment(val atMs: Long?, val text: StringBuilder = StringBuilder())
+
+    val segments = mutableListOf(Segment(atMs = null))
+    var cursor = 0
+    while (cursor < source.length) {
+        val open = source.indexOf('<', cursor)
+        if (open < 0) {
+            segments.last().text.append(source.substring(cursor))
+            break
+        }
+        val close = source.indexOf('>', open + 1)
+        if (close < 0) {
+            segments.last().text.append(source.substring(cursor))
+            break
+        }
+        val stamp = parseLrcTimestamp(source.substring(open + 1, close))
+        if (stamp == null) {
+            segments.last().text.append(source.substring(cursor, close + 1))
+        } else {
+            segments.last().text.append(source.substring(cursor, open))
+            segments += Segment(atMs = stamp)
+        }
+        cursor = close + 1
+    }
+
+    val plain = segments.joinToString(separator = "") { it.text.toString() }
+    val timed = segments.filter { it.atMs != null }
+    if (timed.isEmpty()) return plain.trimEnd() to emptyList()
+
+    val words = mutableListOf<LyricWord>()
+    timed.forEachIndexed { index, segment ->
+        val start = segment.atMs ?: return@forEachIndexed
+        val next = timed.getOrNull(index + 1)?.atMs
+        val piece = segment.text.toString()
+        if (piece.isEmpty()) {
+            if (words.isNotEmpty()) {
+                val last = words.last()
+                words[words.lastIndex] = last.copy(endMs = maxOf(last.startMs, start))
+            }
+        } else {
+            words += LyricWord(
+                startMs = start,
+                endMs = next?.takeIf { it > start } ?: start,
+                text = piece,
+            )
+        }
+    }
+    return plain.trimEnd() to words
 }
 
 private fun JsonElement.asObject(): JsonObject? = this as? JsonObject

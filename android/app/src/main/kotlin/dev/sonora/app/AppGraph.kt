@@ -32,7 +32,7 @@ class AppGraph(context: Context) {
 
     private val coreResult = CoreFactory(
         rustEnabled = BuildConfig.SONORA_RUST,
-        debugPublicMode = BuildConfig.DEBUG,
+        deezerAccountMode = true,
     ).createCore(
         context = appContext,
         scope = applicationScope,

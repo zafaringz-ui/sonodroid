@@ -31,8 +31,6 @@ data class Track(
     val isExplicit: Boolean = false,
     val isVideo: Boolean = false,
     val qualityLabel: String? = null,
-    /** Deezer's public 30-second MP3 preview; null for providers/tracks without one. */
-    val previewUrl: String? = null,
 ) {
     val artistLine: String get() = artists.joinToString(", ")
 }
@@ -124,7 +122,20 @@ data class LibrarySnapshot(
     val downloads: List<DownloadItem> = emptyList(),
 )
 
-data class LyricLine(val timeMs: Long, val text: String)
+data class LyricWord(
+    val startMs: Long,
+    val endMs: Long,
+    val text: String,
+)
+
+data class LyricLine(
+    val timeMs: Long,
+    val text: String,
+    val words: List<LyricWord> = emptyList(),
+) {
+    fun activeWordIndex(positionMs: Long): Int =
+        words.indexOfLast { it.startMs <= positionMs }
+}
 
 data class Lyrics(
     val trackId: String,
