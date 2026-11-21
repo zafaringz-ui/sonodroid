@@ -109,7 +109,9 @@ fun HomeScreen(
                         style = MaterialTheme.typography.headlineLarge,
                     )
                     Text(
-                        text = if (state.isPublicMode) "Public Deezer catalog · 30-second previews" else "Listen across Deezer and YouTube Music",
+                        text = if (state.isPublicMode) {
+                            if (Provider.DEEZER in state.signedIn) "Deezer account connected · full tracks" else "Public Deezer previews · sign in for full tracks"
+                        } else "Listen across Deezer and YouTube Music",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -139,7 +141,7 @@ fun HomeScreen(
             }
         }
 
-        if (!state.isPublicMode && state.selected !in state.signedIn) {
+        if (state.selected !in state.signedIn && (!state.isPublicMode || state.selected == Provider.DEEZER)) {
             item(key = "signin-prompt") {
                 SignInPrompt(provider = state.selected, onSignIn = onSignIn)
             }
@@ -234,7 +236,7 @@ private fun SignInPrompt(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "Sign in to ${provider.label} to sync your own library.",
+            text = if (provider == Provider.DEEZER) "Sign in to Deezer for full-track playback." else "Sign in to ${provider.label} to sync your own library.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),

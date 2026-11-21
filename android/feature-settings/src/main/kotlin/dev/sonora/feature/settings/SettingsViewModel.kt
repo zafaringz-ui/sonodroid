@@ -16,6 +16,7 @@ import dev.sonora.core.model.StreamPurpose
 import dev.sonora.core.model.StreamQuality
 import dev.sonora.design.theme.SonoraAccent
 import dev.sonora.design.theme.SonoraUiPreferences
+import dev.sonora.secure.CredentialStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,6 +41,7 @@ data class SettingsUiState(
 
 class SettingsViewModel(
     private val core: SonoraCoreClient,
+    private val credentials: CredentialStore?,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
@@ -102,6 +104,7 @@ class SettingsViewModel(
     fun signOut(provider: Provider) {
         viewModelScope.launch {
             core.signOut(provider)
+            credentials?.clear(provider.slug)
             _state.update { it.copy(message = "Signed out of ${provider.label}") }
         }
     }
@@ -109,8 +112,8 @@ class SettingsViewModel(
     fun consumeMessage() = _state.update { it.copy(message = null) }
 
     companion object {
-        fun factory(core: SonoraCoreClient): ViewModelProvider.Factory = viewModelFactory {
-            initializer { SettingsViewModel(core) }
+        fun factory(core: SonoraCoreClient, credentials: CredentialStore? = null): ViewModelProvider.Factory = viewModelFactory {
+            initializer { SettingsViewModel(core, credentials) }
         }
     }
 }

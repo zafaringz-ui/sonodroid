@@ -1,7 +1,9 @@
 package dev.sonora.app
 
 import android.content.Context
+import dev.sonora.core.DeezerAccountSession
 import dev.sonora.core.SonoraCoreClient
+import dev.sonora.core.model.Provider
 import dev.sonora.playback.PlaybackDependencies
 import dev.sonora.secure.CredentialStore
 import dev.sonora.secure.SecretsVault
@@ -12,6 +14,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
 
 /**
  * Manual dependency graph.
@@ -55,6 +58,14 @@ class AppGraph(context: Context) {
     val vault = SecretsVault(appContext)
     val credentials = CredentialStore(vault)
     val onboarding = OnboardingStore(appContext)
+
+    init {
+        val arl = credentials.load(Provider.DEEZER.slug)
+        val accountSession = core as? DeezerAccountSession
+        if (!arl.isNullOrBlank() && accountSession != null) {
+            applicationScope.launch { runCatching { accountSession.restore(arl) } }
+        }
+    }
 
     private val _deepLinks = MutableSharedFlow<DeepLink>(
         extraBufferCapacity = 4,

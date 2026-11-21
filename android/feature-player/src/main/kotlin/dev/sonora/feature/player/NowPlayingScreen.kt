@@ -157,7 +157,7 @@ fun NowPlayingScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (track.provider == dev.sonora.core.model.Provider.DEEZER) {
+                    if (track.provider == dev.sonora.core.model.Provider.DEEZER && track.previewUrl != null) {
                         Text(
                             text = "30 s preview",
                             style = MaterialTheme.typography.labelMedium,
@@ -176,7 +176,7 @@ fun NowPlayingScreen(
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall,
                 )
-                if (!track.previewUrl.isNullOrBlank()) {
+                if (track.provider == dev.sonora.core.model.Provider.DEEZER && playback.queueSize > 0) {
                     TextButton(onClick = onRetry) { Text("Try again") }
                 }
             }

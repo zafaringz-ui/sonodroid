@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.sonora.core.SonoraCoreClient
+import dev.sonora.secure.CredentialStore
 import dev.sonora.core.model.AuthState
 import dev.sonora.core.model.NetworkKind
 import dev.sonora.core.model.Provider
@@ -56,11 +57,12 @@ import dev.sonora.design.theme.SonoraAccent
 @Composable
 fun SettingsRoute(
     core: SonoraCoreClient,
+    credentials: CredentialStore,
     onOpenQuality: (Provider) -> Unit,
     onSignIn: (Provider) -> Unit,
     onOpenDownloads: () -> Unit,
 ) {
-    val viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.factory(core))
+    val viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.factory(core, credentials))
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
 
@@ -306,7 +308,11 @@ private fun AccountRow(
                         "${auth.account?.displayName ?: "Signed in"} · ${auth.account?.plan?.label ?: "Free"}"
                     AuthState.CONNECTING -> "Connecting…"
                     AuthState.NEEDS_ATTENTION -> auth.detail ?: "Needs attention"
-                    AuthState.SIGNED_OUT -> if (publicMode) "Public mode · sign-in unavailable" else "Not signed in"
+                    AuthState.SIGNED_OUT -> when {
+                        publicMode && auth.provider == Provider.DEEZER -> "Public previews · sign in for full tracks"
+                        publicMode -> "Not available in this public build"
+                        else -> "Not signed in"
+                    }
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -314,7 +320,7 @@ private fun AccountRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (!publicMode) {
+        if (!publicMode || auth.provider == Provider.DEEZER) {
             TextButton(onClick = if (auth.state == AuthState.SIGNED_IN) onSignOut else onSignIn) {
                 Text(if (auth.state == AuthState.SIGNED_IN) "Sign out" else "Sign in")
             }

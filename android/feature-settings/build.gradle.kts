@@ -28,6 +28,7 @@ android {
 dependencies {
     implementation(project(":core-bridge"))
     implementation(project(":design-system"))
+    implementation(project(":platform-secure"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

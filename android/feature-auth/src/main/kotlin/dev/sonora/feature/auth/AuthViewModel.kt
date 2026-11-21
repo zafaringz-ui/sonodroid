@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import dev.sonora.core.DeezerAccountSession
+import dev.sonora.core.PublicCatalogClient
 import dev.sonora.core.SonoraCoreClient
 import dev.sonora.core.model.PlanTier
 import dev.sonora.core.model.Provider
@@ -26,22 +28,24 @@ data class AuthUiState(
     val message: String? = null,
     val capturedPreview: String? = null,
     val isDemo: Boolean = false,
+    val isPublicMode: Boolean = false,
 )
 
 /**
  * Sign-in orchestration.
  *
- * The WebView captures the cookie; the credential is sealed with the Keystore before
- * anything else happens. Validation against the real service belongs to the Rust
- * provider layer (Phase 3 for Deezer, Phase 4 for YouTube), which is why the demo
- * build says so plainly in the UI instead of pretending the login was verified.
+ * The WebView captures Deezer's ARL cookie; the Android Deezer session validates it
+ * against the gateway before the credential is sealed in the Keystore-backed vault.
+ * Other provider sign-in flows remain unavailable in this public-catalog build.
  */
 class AuthViewModel(
     private val core: SonoraCoreClient,
     private val credentials: CredentialStore,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(AuthUiState(isDemo = core.isDemoMode))
+    private val _state = MutableStateFlow(
+        AuthUiState(isDemo = core.isDemoMode, isPublicMode = core is PublicCatalogClient),
+    )
     val state: StateFlow<AuthUiState> = _state.asStateFlow()
 
     val target: AuthTarget get() = AuthFlows.forSlug(_state.value.providerSlug)
@@ -54,13 +58,39 @@ class AuthViewModel(
     }
 
     fun openWebView() {
-        _state.update { it.copy(message = "Real provider sign-in is not implemented. Use the demo account; do not enter real credentials.") }
+        if (_state.value.isPublicMode && provider == Provider.DEEZER) {
+            core.beginSignIn(Provider.DEEZER)
+            _state.update { it.copy(showWebView = true, message = null) }
+        } else {
+            _state.update { it.copy(message = "Real provider sign-in is not available in this build.") }
+        }
     }
 
     fun closeWebView() = _state.update { it.copy(showWebView = false) }
 
     fun onCookiesCaptured(cookies: Map<String, String>) {
-        _state.update { it.copy(message = "Real provider sign-in is not implemented.") }
+        val target = target
+        if (!AuthFlows.hasRequiredCookies(target, cookies) || _state.value.busy) return
+        val arl = AuthFlows.credentialFor(target, cookies) ?: return
+        if (target.provider != AuthProvider.DEEZER) return
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true, message = "Validating Deezer session…", capturedPreview = AuthFlows.describeCredential(arl)) }
+            runCatching {
+                val session = core as? DeezerAccountSession
+                    ?: error("Authenticated Deezer playback is unavailable in this build.")
+                session.signIn(arl)
+                try {
+                    credentials.save(Provider.DEEZER.slug, arl)
+                } catch (failure: Exception) {
+                    core.signOut(Provider.DEEZER)
+                    throw failure
+                }
+            }.onSuccess {
+                _state.update { it.copy(busy = false, done = true, showWebView = false, message = "Deezer account connected. Full-track playback is enabled.") }
+            }.onFailure { failure ->
+                _state.update { it.copy(busy = false, showWebView = false, message = failure.message ?: "Deezer sign-in failed") }
+            }
+        }
     }
 
     fun onManualCredential(value: String) {

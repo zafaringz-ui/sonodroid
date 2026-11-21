@@ -162,15 +162,15 @@ fun SonoraApp(graph: AppGraph) {
             }
 
             composable<SignInDestination> { entry ->
-                if (core is PublicCatalogClient) {
+                val args = entry.toRoute<SignInDestination>()
+                if (core is PublicCatalogClient && args.providerSlug != Provider.DEEZER.slug) {
                     EmptyState(
                         title = "Sign-in unavailable",
-                        body = "This debug build uses Deezer's public catalog and never asks for credentials.",
+                        body = "YouTube Music sign-in is not available in this public Deezer build.",
                         actionLabel = "Back",
                         onAction = { navController.popBackStack() },
                     )
                 } else {
-                    val args = entry.toRoute<SignInDestination>()
                     SignInRoute(
                         core = core,
                         credentials = graph.credentials,
@@ -270,6 +270,7 @@ fun SonoraApp(graph: AppGraph) {
             composable<SettingsDestination> {
                 SettingsRoute(
                     core = core,
+                    credentials = graph.credentials,
                     onOpenQuality = { provider ->
                         navController.navigate(QualityDestination(provider.slug))
                     },

@@ -8,8 +8,15 @@ interface DeezerArtistTopTracks {
     suspend fun artistTopTracks(artistId: String): List<Track>
 }
 
-/** True for clients that intentionally expose only public, unauthenticated catalog data. */
+/** True for clients whose catalog works without an account; account capabilities may be optional. */
 interface PublicCatalogClient {
     /** The shared Media3 player used by the catalog client and media session, when present. */
     val media3Player: Player? get() = null
+}
+
+/** Optional account path for a client that can upgrade public catalog playback to full tracks. */
+interface DeezerAccountSession {
+    suspend fun signIn(arl: String)
+    suspend fun restore(arl: String)
+    suspend fun signOut()
 }

@@ -20,7 +20,7 @@ enum class CoreMode {
     /** `UniffiCoreClient` backed by the Rust core answering from real providers. */
     RUST_LIVE,
 
-    /** Public Deezer catalog and 30-second previews, with no sign-in. */
+    /** Public Deezer catalog with optional authenticated full-track playback. */
     DEEZER_PUBLIC,
 }
 
@@ -76,7 +76,7 @@ object CoreSelectionPolicy {
         mode = CoreMode.DEEZER_PUBLIC,
         reason = null,
         label = LABEL_DEEZER_PUBLIC,
-        detail = "Public Deezer catalog and 30-second previews; no account credentials are used.",
+        detail = "Public Deezer catalog; sign-in is optional and unlocks authenticated full tracks.",
     )
 
     /**
