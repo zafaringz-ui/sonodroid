@@ -55,7 +55,7 @@ class DeezerPrivateSessionTest {
         val userData = server.takeRequest()
         assertEquals("POST", userData.method)
         assertEquals("deezer.getUserData", userData.requestUrl?.queryParameter("method"))
-        assertEquals("session-id", userData.requestUrl?.queryParameter("api_token"))
+        assertEquals("", userData.requestUrl?.queryParameter("api_token"))
         assertTrue(userData.getHeader("Cookie").orEmpty().contains("sid=session-id"))
         assertTrue(userData.getHeader("Cookie").orEmpty().contains("arl=${"a".repeat(64)}"))
         assertEquals("{}", userData.body.readUtf8())
