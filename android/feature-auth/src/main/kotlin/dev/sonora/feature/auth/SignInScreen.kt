@@ -141,16 +141,16 @@ fun SignInScreen(
 
         Spacer(Modifier.height(12.dp))
         Text(
-            text = if (state.isPublicMode && state.providerSlug == AuthProvider.DEEZER.slug) {
-                "Sign in to Deezer in the secure browser to enable full-track playback. Your session is validated and stored encrypted on this device."
+            text = if (state.isAccountMode && state.providerSlug == AuthProvider.DEEZER.slug) {
+                "Sign in to Deezer in the secure browser to access your account catalog and full-track playback. Your session is validated and stored encrypted on this device."
             } else {
-                "Real provider sign-in is not available in this build."
+                "This Android account client currently supports Deezer sign-in only."
             },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        if (state.isPublicMode && state.providerSlug == AuthProvider.DEEZER.slug) {
+        if (state.isAccountMode && state.providerSlug == AuthProvider.DEEZER.slug) {
             Spacer(Modifier.height(16.dp))
             Button(onClick = onOpenWebView, enabled = !state.busy) {
                 Text("Continue with Deezer")

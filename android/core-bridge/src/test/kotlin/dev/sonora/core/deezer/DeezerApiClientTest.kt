@@ -1,6 +1,5 @@
 package dev.sonora.core.deezer
 
-import android.content.Context
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -10,11 +9,6 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.RuntimeEnvironment
-
-@RunWith(RobolectricTestRunner::class)
 class DeezerApiClientTest {
     private lateinit var server: MockWebServer
 
@@ -27,24 +21,17 @@ class DeezerApiClientTest {
     @Test fun mockWebServerSearchMapsDocumentedFieldsAndEscapesQuery() = runTest {
         server.enqueue(MockResponse().setBody(resource("/deezer/search-tracks.json")))
         val api = DeezerApiClient(baseUrl = server.url("/").toString().trimEnd('/'))
-        val context: Context = RuntimeEnvironment.getApplication()
-        val core = DeezerPublicCoreClient(context, backgroundScope, api)
-        try {
-            val results = core.search(dev.sonora.core.model.Provider.DEEZER, "daft punk & friends", dev.sonora.core.model.SearchFilter.TRACKS)
-            val request = server.takeRequest()
-            assertEquals("/search?q=daft%20punk%20%26%20friends&limit=25", request.path)
-            assertEquals(DeezerApiClient.USER_AGENT, request.getHeader("User-Agent"))
-            val track = results.tracks.single()
-            assertEquals("Harder Better Faster Stronger", track.title)
-            assertEquals(listOf("Daft Punk"), track.artists)
-            assertEquals("Discovery", track.album)
-            assertEquals("302127", track.albumId)
-            assertEquals(224_000L, track.durationMs)
-            assertEquals("https://cdn-preview.example/preview.mp3", track.previewUrl)
-            assertNotNull(track.artworkUrl)
-        } finally {
-            core.close()
-        }
+        val response = api.get("search", mapOf("q" to "daft punk & friends", "limit" to "25"))
+        val request = server.takeRequest()
+        assertEquals("/search?q=daft%20punk%20%26%20friends&limit=25", request.path)
+        assertEquals(DeezerApiClient.USER_AGENT, request.getHeader("User-Agent"))
+        val track = response.array("data")!!.single().asObject()!!.toTrack()!!
+        assertEquals("Harder Better Faster Stronger", track.title)
+        assertEquals(listOf("Daft Punk"), track.artists)
+        assertEquals("Discovery", track.album)
+        assertEquals("302127", track.albumId)
+        assertEquals(224_000L, track.durationMs)
+        assertNotNull(track.artworkUrl)
     }
 
     @Test fun mapsHttp200QuotaErrorAndRetriesWithBackoff() = runTest {

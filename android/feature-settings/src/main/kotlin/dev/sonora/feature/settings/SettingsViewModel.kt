@@ -1,11 +1,12 @@
 package dev.sonora.feature.settings
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import dev.sonora.core.PublicCatalogClient
+import dev.sonora.core.DeezerAccountSession
 import dev.sonora.core.SonoraCoreClient
 import dev.sonora.core.model.DownloadItem
 import dev.sonora.core.model.NetworkKind
@@ -15,8 +16,10 @@ import dev.sonora.core.model.QualityPreference
 import dev.sonora.core.model.StreamPurpose
 import dev.sonora.core.model.StreamQuality
 import dev.sonora.design.theme.SonoraAccent
+import dev.sonora.design.theme.SonoraFont
 import dev.sonora.design.theme.SonoraUiPreferences
 import dev.sonora.secure.CredentialStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,24 +36,39 @@ data class SettingsUiState(
     val preferences: Map<Provider, QualityPreference> = emptyMap(),
     val accent: SonoraAccent = SonoraAccent.TIDE,
     val dynamicColor: Boolean = true,
+    val font: SonoraFont = SonoraFont.SANS,
+    val karaokeWords: Boolean = true,
+    val lyricsArtwork: Boolean = true,
     val isDemo: Boolean = false,
-    val isPublicMode: Boolean = false,
+    val isAccountMode: Boolean = false,
     val version: String = "0.1.0",
+    val updateChecking: Boolean = false,
+    val updateStatus: String? = null,
+    val updateUrl: String? = null,
     val message: String? = null,
 )
+
+@Suppress("DEPRECATION")
+private fun Context.installedVersionName(): String =
+    packageManager.getPackageInfo(packageName, 0).versionName ?: "0.1.0"
 
 class SettingsViewModel(
     private val core: SonoraCoreClient,
     private val credentials: CredentialStore?,
+    private val context: Context?,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
         SettingsUiState(
             isDemo = core.isDemoMode,
-            isPublicMode = core is PublicCatalogClient,
+            isAccountMode = core is DeezerAccountSession,
             accent = SonoraUiPreferences.accent.value,
             dynamicColor = SonoraUiPreferences.dynamicColor.value,
+            font = SonoraUiPreferences.font.value,
+            karaokeWords = SonoraUiPreferences.karaokeWords.value,
+            lyricsArtwork = SonoraUiPreferences.lyricsArtwork.value,
             preferences = Provider.entries.associateWith { core.qualityPreference(it) },
+            version = context?.installedVersionName() ?: "0.1.0",
         ),
     )
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
@@ -101,6 +119,51 @@ class SettingsViewModel(
         _state.update { it.copy(dynamicColor = enabled) }
     }
 
+    fun setFont(font: SonoraFont) {
+        SonoraUiPreferences.setFont(font)
+        _state.update { it.copy(font = font) }
+    }
+
+    fun setKaraokeWords(enabled: Boolean) {
+        SonoraUiPreferences.setKaraokeWords(enabled)
+        _state.update { it.copy(karaokeWords = enabled) }
+    }
+
+    fun setLyricsArtwork(enabled: Boolean) {
+        SonoraUiPreferences.setLyricsArtwork(enabled)
+        _state.update { it.copy(lyricsArtwork = enabled) }
+    }
+
+    fun checkForUpdates() {
+        val appContext = context?.applicationContext
+        if (appContext == null) {
+            _state.update { it.copy(updateStatus = "Update check unavailable in this context.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(updateChecking = true, updateStatus = "Checking GitHub releases…", updateUrl = null) }
+            try {
+                when (val update = UpdateChecker.check(appContext)) {
+                    is UpdateResult.Available -> _state.update {
+                        it.copy(updateChecking = false, updateStatus = "Version ${update.version} is available.", updateUrl = update.releaseUrl)
+                    }
+                    is UpdateResult.Current -> _state.update {
+                        it.copy(updateChecking = false, updateStatus = "You're up to date (${update.version}).", updateUrl = null)
+                    }
+                    UpdateResult.NoRelease -> _state.update {
+                        it.copy(updateChecking = false, updateStatus = "No published release is available yet.", updateUrl = null)
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _state.update {
+                    it.copy(updateChecking = false, updateStatus = "Could not check for updates. Check your connection and try again.", updateUrl = null)
+                }
+            }
+        }
+    }
+
     fun signOut(provider: Provider) {
         viewModelScope.launch {
             core.signOut(provider)
@@ -112,8 +175,12 @@ class SettingsViewModel(
     fun consumeMessage() = _state.update { it.copy(message = null) }
 
     companion object {
-        fun factory(core: SonoraCoreClient, credentials: CredentialStore? = null): ViewModelProvider.Factory = viewModelFactory {
-            initializer { SettingsViewModel(core, credentials) }
+        fun factory(
+            core: SonoraCoreClient,
+            credentials: CredentialStore? = null,
+            context: Context? = null,
+        ): ViewModelProvider.Factory = viewModelFactory {
+            initializer { SettingsViewModel(core, credentials, context) }
         }
     }
 }

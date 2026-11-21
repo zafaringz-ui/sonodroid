@@ -68,6 +68,17 @@ def strip_strings_and_comments(source: str) -> str:
                     break
                 i += 1
             continue
+        if char == "'":
+            i += 1
+            while i < length:
+                if source[i] == "\\\\":
+                    i += 2
+                    continue
+                if source[i] == "'":
+                    i += 1
+                    break
+                i += 1
+            continue
         if source.startswith("//", i):
             end = source.find("\n", i)
             i = length if end == -1 else end

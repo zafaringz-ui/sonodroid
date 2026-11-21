@@ -10,7 +10,7 @@ import kotlinx.coroutines.CoroutineScope
  * Builds the active `SonoraCoreClient` and reports which one it is.
  *
  * Split out of `AppGraph` so the decision is a single unit with a single return
- * value: `AppGraph.core` is just [createCore]'s `client`, and the debug badge reads
+ * value: `AppGraph.core` is just [createCore]'s `client`, and the core badge reads
  * [createCore]'s `selection`. No silent `getOrNull()` — every fallback carries a
  * [FallbackReason] and a `Log.e` with only the exception class and message.
  */
@@ -19,7 +19,7 @@ class CoreFactory(
     private val rustEnabled: Boolean,
     /** The adapter the app should use, or `null` when the flag is off. */
     private val adapterClassName: String? = ADAPTER_CLASS,
-    private val debugPublicMode: Boolean = false,
+    private val deezerAccountMode: Boolean = false,
 ) {
 
     data class Result(
@@ -36,12 +36,13 @@ class CoreFactory(
         scope: CoroutineScope,
         fallback: (CoroutineScope) -> SonoraCoreClient = { DemoCoreClient(it) },
     ): Result {
+        if (deezerAccountMode) {
+            val selection = CoreSelectionPolicy.deezerAccount()
+            Log.i(TAG, "Using ${selection.label}: ${selection.detail}")
+            return Result(dev.sonora.core.deezer.DeezerAccountCoreClient(context, scope), selection)
+        }
+
         if (!rustEnabled) {
-            if (debugPublicMode) {
-                val selection = CoreSelectionPolicy.deezerPublic()
-                Log.i(TAG, "Using ${selection.label}: ${selection.detail}")
-                return Result(dev.sonora.core.deezer.DeezerPublicCoreClient(context, scope), selection)
-            }
             val selection = CoreSelectionPolicy.decide(
                 rustEnabled = false,
                 adapterVisible = false,

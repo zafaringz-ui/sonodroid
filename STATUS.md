@@ -1,10 +1,11 @@
 # Status — Phase A in progress, gate not passed
 
-## What works now (debug Deezer public mode)
+## Current Android state (account-gated Deezer client)
 
-- The debug build uses Deezer's public catalog endpoints for search, charts, artist top tracks, and album tracks. Signed out, playback uses public 30-second previews; optional Deezer WebView sign-in validates and encrypts the session credential with Android Keystore, then enables authenticated full-track playback with Sonora's BF_CBC_STRIPE decryption in memory. The debug badge reads `Deezer public catalog`.
-- Library, playlists, downloads, and lyrics remain unavailable in this Android client. Missing optional public track fields default to empty artists, null album/artwork/preview, zero duration, and non-explicit; absent album artist is “Unknown artist”, with year/follower count unknown.
-- **User-verified on device:** the user installed `sonora-debug-apk`, signed in to a Deezer Free account, and confirmed playback of a full song. **Verified in CI:** run [44846090921](https://github.com/zafaringz-ui/sonodroid/actions/runs/44846090921) passed Android assembly/tests, Rust tests/Clippy, and the Android native build at commit `154fc2d`. Session restore after restart, sign-out credential removal, seeking/background playback, and other account/track error cases are not yet device-verified.
+- The default Android client now requires a validated Deezer sign-in before catalog requests or playback. Anonymous 30-second previews have been removed; playback always uses the authenticated full-track transport and in-memory BF_CBC_STRIPE decryption. Account search/charts/albums still use Deezer's catalog metadata API after sign-in; the upstream Rust `music` crate is vendored but is not yet linked into `mobile-core`.
+- Deezer personal-library, playlist, and download APIs remain unavailable in this Android client. Lyrics currently use LRCLIB; the Android model/parser now accepts word-timed LRC, and the lyrics screen has configurable word highlighting and a cover-art backdrop. These current-worktree changes have not yet been built or device-tested.
+- Settings now has persisted font-family and lyrics display controls plus a manual GitHub Releases update check. The update button opens the release page; Android installation remains user-confirmed. These current-worktree changes are also unverified.
+- **Previously user-verified on device:** a Deezer Free account played a full song in an earlier debug build. **Previously verified in CI:** run [44846090921](https://github.com/zafaringz-ui/sonodroid/actions/runs/44846090921) passed Android assembly/tests, Rust tests/Clippy, and the Android native build at commit `154fc2d`. That validation predates the current account-gating, lyrics, typography, updater, and settings changes.
 
 Categories: **verified** means the indicated command was actually run with the
 recorded result; **implemented but untested** means source/configuration exists but

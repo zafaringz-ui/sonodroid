@@ -28,7 +28,7 @@ fun CoreModeBadge(
     val colors = MaterialTheme.colorScheme
     val (background, content) = when (selection.mode) {
         CoreMode.RUST_LIVE -> colors.tertiaryContainer to colors.onTertiaryContainer
-        CoreMode.DEEZER_PUBLIC -> colors.primaryContainer to colors.onPrimaryContainer
+        CoreMode.DEEZER_ACCOUNT -> colors.primaryContainer to colors.onPrimaryContainer
         CoreMode.RUST_FIXTURES -> colors.secondaryContainer to colors.onSecondaryContainer
         CoreMode.DEMO -> colors.errorContainer to colors.onErrorContainer
     }

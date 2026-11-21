@@ -42,7 +42,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
-import dev.sonora.core.PublicCatalogClient
+import dev.sonora.core.DeezerAccountSession
+import dev.sonora.core.model.AuthState
 import dev.sonora.core.model.PlanTier
 import dev.sonora.core.model.Provider
 import dev.sonora.design.component.EmptyState
@@ -78,6 +79,9 @@ fun SonoraApp(graph: AppGraph) {
         factory = PlayerViewModel.factory(core),
     )
     val playerState by playerViewModel.state.collectAsStateWithLifecycle()
+    val auth by core.auth.collectAsStateWithLifecycle()
+    val signedInToDeezer = auth.any { it.provider == Provider.DEEZER && it.state == AuthState.SIGNED_IN }
+    val accountSignInRequired = core is DeezerAccountSession && !signedInToDeezer
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val destination = backStackEntry?.destination
@@ -93,7 +97,7 @@ fun SonoraApp(graph: AppGraph) {
     }
 
     val startDestination: Any = if (
-        graph.onboarding.isOnboarded || core is PublicCatalogClient
+        graph.onboarding.isOnboarded || core is DeezerAccountSession
     ) {
         HomeDestination
     } else {
@@ -163,10 +167,10 @@ fun SonoraApp(graph: AppGraph) {
 
             composable<SignInDestination> { entry ->
                 val args = entry.toRoute<SignInDestination>()
-                if (core is PublicCatalogClient && args.providerSlug != Provider.DEEZER.slug) {
+                if (core is DeezerAccountSession && args.providerSlug != Provider.DEEZER.slug) {
                     EmptyState(
                         title = "Sign-in unavailable",
-                        body = "YouTube Music sign-in is not available in this public Deezer build.",
+                        body = "This Android account client currently supports Deezer only.",
                         actionLabel = "Back",
                         onAction = { navController.popBackStack() },
                     )
@@ -188,7 +192,11 @@ fun SonoraApp(graph: AppGraph) {
             }
 
             composable<HomeDestination> {
-                HomeRoute(
+                if (accountSignInRequired) {
+                    AccountRequiredScreen {
+                        navController.navigate(SignInDestination(Provider.DEEZER.slug))
+                    }
+                } else HomeRoute(
                     core = core,
                     onPlayTracks = { tracks, index ->
                         playerViewModel.playTracks(tracks, index)
@@ -208,7 +216,11 @@ fun SonoraApp(graph: AppGraph) {
             }
 
             composable<SearchDestination> {
-                SearchRoute(
+                if (accountSignInRequired) {
+                    AccountRequiredScreen {
+                        navController.navigate(SignInDestination(Provider.DEEZER.slug))
+                    }
+                } else SearchRoute(
                     core = core,
                     onPlayTracks = { tracks, index ->
                         playerViewModel.playTracks(tracks, index)
@@ -220,11 +232,16 @@ fun SonoraApp(graph: AppGraph) {
                     onOpenPlaylist = { provider, playlistId ->
                         navController.navigate(PlaylistDestination(provider.slug, playlistId))
                     },
+                    onSignIn = { navController.navigate(SignInDestination(Provider.DEEZER.slug)) },
                 )
             }
 
             composable<LibraryDestination> {
-                LibraryRoute(
+                if (accountSignInRequired) {
+                    AccountRequiredScreen {
+                        navController.navigate(SignInDestination(Provider.DEEZER.slug))
+                    }
+                } else LibraryRoute(
                     core = core,
                     onPlayTracks = { tracks, index ->
                         playerViewModel.playTracks(tracks, index)
@@ -241,7 +258,11 @@ fun SonoraApp(graph: AppGraph) {
 
             composable<AlbumDestination> { entry ->
                 val args = entry.toRoute<AlbumDestination>()
-                AlbumRoute(
+                if (accountSignInRequired) {
+                    AccountRequiredScreen {
+                        navController.navigate(SignInDestination(Provider.DEEZER.slug))
+                    }
+                } else AlbumRoute(
                     core = core,
                     providerSlug = args.providerSlug,
                     albumId = args.albumId,
@@ -255,7 +276,11 @@ fun SonoraApp(graph: AppGraph) {
 
             composable<PlaylistDestination> { entry ->
                 val args = entry.toRoute<PlaylistDestination>()
-                PlaylistRoute(
+                if (accountSignInRequired) {
+                    AccountRequiredScreen {
+                        navController.navigate(SignInDestination(Provider.DEEZER.slug))
+                    }
+                } else PlaylistRoute(
                     core = core,
                     providerSlug = args.providerSlug,
                     playlistId = args.playlistId,
@@ -333,6 +358,16 @@ fun SonoraApp(graph: AppGraph) {
             )
         }
     }
+}
+
+@Composable
+private fun AccountRequiredScreen(onSignIn: () -> Unit) {
+    EmptyState(
+        title = "Sign in to Deezer",
+        body = "Catalog browsing and full-track playback are available after your Deezer account is connected.",
+        actionLabel = "Sign in",
+        onAction = onSignIn,
+    )
 }
 
 private data class TopLevelItem(

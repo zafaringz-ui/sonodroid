@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import dev.sonora.core.PublicCatalogClient
+import dev.sonora.core.DeezerAccountSession
 import dev.sonora.core.SonoraCoreClient
 import dev.sonora.core.model.AuthState
 import dev.sonora.core.model.HomeFeed
@@ -23,7 +23,7 @@ data class HomeUiState(
     val signedIn: Set<Provider> = emptySet(),
     val error: String? = null,
     val isDemo: Boolean = false,
-    val isPublicMode: Boolean = false,
+    val isAccountMode: Boolean = false,
 ) {
     val feed: HomeFeed? get() = feeds[selected]
 }
@@ -35,7 +35,7 @@ class HomeViewModel(
     private val _state = MutableStateFlow(
         HomeUiState(
             isDemo = core.isDemoMode,
-            isPublicMode = core is PublicCatalogClient,
+            isAccountMode = core is DeezerAccountSession,
         ),
     )
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
@@ -43,13 +43,18 @@ class HomeViewModel(
     init {
         viewModelScope.launch {
             core.auth.collect { accounts ->
+                val signedIn = accounts
+                    .filter { it.state == AuthState.SIGNED_IN }
+                    .map { it.provider }
+                    .toSet()
                 _state.update { current ->
                     current.copy(
-                        signedIn = accounts
-                            .filter { it.state == AuthState.SIGNED_IN }
-                            .map { it.provider }
-                            .toSet(),
+                        signedIn = signedIn,
+                        feeds = if (core is DeezerAccountSession && Provider.DEEZER !in signedIn) emptyMap() else current.feeds,
                     )
+                }
+                if (core is DeezerAccountSession && Provider.DEEZER in signedIn) {
+                    load(Provider.DEEZER, force = true)
                 }
             }
         }

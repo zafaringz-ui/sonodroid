@@ -113,6 +113,7 @@ fun SonoraTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     accent: SonoraAccent = SonoraAccent.TIDE,
     dynamicColor: Boolean = true,
+    font: SonoraFont = SonoraFont.SANS,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
@@ -137,7 +138,7 @@ fun SonoraTheme(
     CompositionLocalProvider(LocalSonoraColors provides extended) {
         MaterialTheme(
             colorScheme = colorScheme,
-            typography = SonoraTypography,
+            typography = sonoraTypography(SonoraUiPreferences.fontFamily(font)),
             content = content,
         )
     }

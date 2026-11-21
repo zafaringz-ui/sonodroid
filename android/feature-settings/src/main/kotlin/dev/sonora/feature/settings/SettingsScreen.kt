@@ -1,5 +1,7 @@
 package dev.sonora.feature.settings
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -18,6 +20,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.WifiOff
@@ -39,6 +42,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,6 +57,7 @@ import dev.sonora.core.model.ProviderAuth
 import dev.sonora.core.model.QualityPreference
 import dev.sonora.design.component.DemoDataBadge
 import dev.sonora.design.theme.SonoraAccent
+import dev.sonora.design.theme.SonoraFont
 
 @Composable
 fun SettingsRoute(
@@ -62,7 +67,10 @@ fun SettingsRoute(
     onSignIn: (Provider) -> Unit,
     onOpenDownloads: () -> Unit,
 ) {
-    val viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.factory(core, credentials))
+    val context = LocalContext.current
+    val viewModel: SettingsViewModel = viewModel(
+        factory = SettingsViewModel.factory(core, credentials, context.applicationContext),
+    )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
 
@@ -87,6 +95,13 @@ fun SettingsRoute(
         onNetwork = viewModel::setNetwork,
         onAccent = viewModel::setAccent,
         onDynamicColor = viewModel::setDynamicColor,
+        onFont = viewModel::setFont,
+        onKaraokeWords = viewModel::setKaraokeWords,
+        onLyricsArtwork = viewModel::setLyricsArtwork,
+        onCheckForUpdates = viewModel::checkForUpdates,
+        onOpenRelease = { url ->
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        },
         resolvedQualityLabel = { provider ->
             viewModel.resolvedQuality(provider)?.label ?: "Offline"
         },
@@ -109,6 +124,11 @@ fun SettingsScreen(
     onNetwork: (NetworkKind) -> Unit,
     onAccent: (SonoraAccent) -> Unit,
     onDynamicColor: (Boolean) -> Unit,
+    onFont: (SonoraFont) -> Unit,
+    onKaraokeWords: (Boolean) -> Unit,
+    onLyricsArtwork: (Boolean) -> Unit,
+    onCheckForUpdates: () -> Unit,
+    onOpenRelease: (String) -> Unit,
     resolvedQualityLabel: (Provider) -> String,
     modifier: Modifier = Modifier,
 ) {
@@ -142,7 +162,7 @@ fun SettingsScreen(
                 auth = account,
                 onSignIn = { onSignIn(account.provider) },
                 onSignOut = { onSignOut(account.provider) },
-                publicMode = state.isPublicMode,
+                accountMode = state.isAccountMode,
             )
         }
 
@@ -230,6 +250,34 @@ fun SettingsScreen(
                     checked = state.dynamicColor,
                     onCheckedChange = onDynamicColor,
                 )
+                Text("Font family", style = MaterialTheme.typography.titleSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SonoraFont.entries.forEach { font ->
+                        FilterChip(
+                            selected = state.font == font,
+                            onClick = { onFont(font) },
+                            label = { Text(font.label) },
+                        )
+                    }
+                }
+            }
+        }
+
+        item(key = "lyrics-header") { SectionTitle("Lyrics", Icons.Rounded.MusicNote) }
+        item(key = "lyrics-options") {
+            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                ToggleRow(
+                    title = "Word-by-word karaoke",
+                    subtitle = "Use source word timings, or estimate word cadence from synced lines",
+                    checked = state.karaokeWords,
+                    onCheckedChange = onKaraokeWords,
+                )
+                ToggleRow(
+                    title = "Artwork background",
+                    subtitle = "Show the current track cover behind lyrics",
+                    checked = state.lyricsArtwork,
+                    onCheckedChange = onLyricsArtwork,
+                )
             }
         }
 
@@ -244,21 +292,37 @@ fun SettingsScreen(
             }
         }
 
+        item(key = "updates-header") { SectionTitle("Updates", Icons.Rounded.Download) }
+        item(key = "updates") {
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+                NavigationRow(
+                    title = if (state.updateChecking) "Checking for updates…" else "Check for updates",
+                    subtitle = state.updateStatus ?: "Installed version ${state.version} · checks GitHub releases",
+                    onClick = onCheckForUpdates,
+                )
+                state.updateUrl?.let { url ->
+                    TextButton(onClick = { onOpenRelease(url) }) {
+                        Text("View release page")
+                    }
+                }
+            }
+        }
+
         item(key = "about-header") { SectionTitle("About", Icons.Rounded.Info) }
         item(key = "about") {
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
                 Text(
-                    text = "Sonora for Android is a GPL-3.0 client for Deezer and YouTube Music. " +
+                    text = "Sonora for Android is a GPL-3.0 Deezer client. " +
                         "It is not affiliated with either service.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = if (state.isDemo) {
-                        "Running on demo data. Build the Rust core and enable -Psonora.rust=true for the native bridge."
-                    } else {
-                        "Native Rust core connected."
+                    text = when {
+                        state.isDemo -> "Running on demo data. Build the Rust core and enable -Psonora.rust=true for the native bridge."
+                        state.isAccountMode -> "Deezer account client. Sign-in is required; personal library and playlist APIs are not wired into this Android build yet."
+                        else -> "Native Rust core connected."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -292,7 +356,7 @@ private fun AccountRow(
     auth: ProviderAuth,
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
-    publicMode: Boolean,
+    accountMode: Boolean,
 ) {
     Row(
         modifier = Modifier
@@ -309,8 +373,8 @@ private fun AccountRow(
                     AuthState.CONNECTING -> "Connecting…"
                     AuthState.NEEDS_ATTENTION -> auth.detail ?: "Needs attention"
                     AuthState.SIGNED_OUT -> when {
-                        publicMode && auth.provider == Provider.DEEZER -> "Public previews · sign in for full tracks"
-                        publicMode -> "Not available in this public build"
+                        accountMode && auth.provider == Provider.DEEZER -> "Sign in required for browsing and full-track playback"
+                        accountMode -> "Not connected in this Android build"
                         else -> "Not signed in"
                     }
                 },
@@ -320,7 +384,7 @@ private fun AccountRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (!publicMode || auth.provider == Provider.DEEZER) {
+        if (!accountMode || auth.provider == Provider.DEEZER) {
             TextButton(onClick = if (auth.state == AuthState.SIGNED_IN) onSignOut else onSignIn) {
                 Text(if (auth.state == AuthState.SIGNED_IN) "Sign out" else "Sign in")
             }

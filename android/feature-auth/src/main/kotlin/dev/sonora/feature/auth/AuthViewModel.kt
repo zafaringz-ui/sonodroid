@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.sonora.core.DeezerAccountSession
-import dev.sonora.core.PublicCatalogClient
 import dev.sonora.core.SonoraCoreClient
 import dev.sonora.core.model.PlanTier
 import dev.sonora.core.model.Provider
@@ -28,7 +27,7 @@ data class AuthUiState(
     val message: String? = null,
     val capturedPreview: String? = null,
     val isDemo: Boolean = false,
-    val isPublicMode: Boolean = false,
+    val isAccountMode: Boolean = false,
 )
 
 /**
@@ -36,7 +35,7 @@ data class AuthUiState(
  *
  * The WebView captures Deezer's ARL cookie; the Android Deezer session validates it
  * against the gateway before the credential is sealed in the Keystore-backed vault.
- * Other provider sign-in flows remain unavailable in this public-catalog build.
+ * Other provider sign-in flows remain unavailable in this Android account build.
  */
 class AuthViewModel(
     private val core: SonoraCoreClient,
@@ -44,7 +43,7 @@ class AuthViewModel(
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
-        AuthUiState(isDemo = core.isDemoMode, isPublicMode = core is PublicCatalogClient),
+        AuthUiState(isDemo = core.isDemoMode, isAccountMode = core is DeezerAccountSession),
     )
     val state: StateFlow<AuthUiState> = _state.asStateFlow()
 
@@ -58,7 +57,7 @@ class AuthViewModel(
     }
 
     fun openWebView() {
-        if (_state.value.isPublicMode && provider == Provider.DEEZER) {
+        if (_state.value.isAccountMode && provider == Provider.DEEZER) {
             core.beginSignIn(Provider.DEEZER)
             _state.update { it.copy(showWebView = true, message = null) }
         } else {

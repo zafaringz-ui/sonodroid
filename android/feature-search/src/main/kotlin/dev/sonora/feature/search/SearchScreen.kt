@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -63,6 +64,7 @@ fun SearchRoute(
     onPlayTracks: (List<Track>, Int) -> Unit,
     onOpenAlbum: (Provider, String) -> Unit,
     onOpenPlaylist: (Provider, String) -> Unit,
+    onSignIn: () -> Unit = {},
 ) {
     val viewModel: SearchViewModel = viewModel(factory = SearchViewModel.factory(core))
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -79,6 +81,7 @@ fun SearchRoute(
         onPlayTracks = onPlayTracks,
         onOpenAlbum = onOpenAlbum,
         onOpenPlaylist = onOpenPlaylist,
+        onSignIn = onSignIn,
         onOpenArtist = { artist ->
             scope.launch {
                 val tracks = runCatching {
@@ -103,6 +106,7 @@ fun SearchScreen(
     onOpenAlbum: (Provider, String) -> Unit,
     onOpenPlaylist: (Provider, String) -> Unit,
     modifier: Modifier = Modifier,
+    onSignIn: () -> Unit = {},
     onRetry: () -> Unit = {},
     onOpenArtist: (Artist) -> Unit = {},
 ) {
@@ -135,6 +139,22 @@ fun SearchScreen(
             }
         }
 
+        if (state.isAccountMode && !state.isSignedIn) {
+            item(key = "account-required") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Sign in to Deezer to search your account catalog.",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(onClick = onSignIn) { Text("Sign in") }
+                }
+            }
+        }
+
         item(key = "providers") {
             Row(
                 modifier = Modifier
@@ -142,7 +162,7 @@ fun SearchScreen(
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Provider.entries.forEach { provider ->
+                (if (state.isAccountMode) listOf(Provider.DEEZER) else Provider.entries).forEach { provider ->
                     FilterChip(
                         selected = provider == state.provider,
                         onClick = { onProviderChange(provider) },
@@ -163,7 +183,9 @@ fun SearchScreen(
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                SearchFilter.entries.forEach { filter ->
+                (if (state.isAccountMode) {
+                    listOf(SearchFilter.ALL, SearchFilter.TRACKS, SearchFilter.ALBUMS, SearchFilter.ARTISTS)
+                } else SearchFilter.entries).forEach { filter ->
                     FilterChip(
                         selected = filter == state.filter,
                         onClick = { onFilterChange(filter) },
