@@ -70,7 +70,7 @@ object CoreSelectionPolicy {
     const val LABEL_DEMO = "Demo core"
     const val LABEL_RUST_FIXTURES = "Rust core (fixtures)"
     const val LABEL_RUST_LIVE = "Rust core (live)"
-    const val LABEL_DEEZER_PUBLIC = "Deezer public (30s previews)"
+    const val LABEL_DEEZER_PUBLIC = "Deezer public catalog"
 
     fun deezerPublic(): CoreSelection = CoreSelection(
         mode = CoreMode.DEEZER_PUBLIC,

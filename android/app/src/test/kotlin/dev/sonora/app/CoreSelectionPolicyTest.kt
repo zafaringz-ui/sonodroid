@@ -100,7 +100,7 @@ class CoreSelectionPolicyTest {
 
         assertEquals(CoreMode.DEEZER_PUBLIC, selection.mode)
         assertNull(selection.reason)
-        assertEquals("Deezer public (30s previews)", selection.label)
+        assertEquals("Deezer public catalog", selection.label)
     }
 
     @Test
