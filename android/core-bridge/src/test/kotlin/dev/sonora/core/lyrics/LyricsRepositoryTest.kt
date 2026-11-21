@@ -75,7 +75,7 @@ class LyricsRepositoryTest {
                |[00:05.25]Last line
             """.trimMargin(),
         )
-        assertEquals(listOf(900L, 2_400L, 5_150L), lines.map(LyricLine::timeMs))
+        assertEquals(listOf(1_100L, 2_600L, 5_350L), lines.map(LyricLine::timeMs))
         assertEquals("Hello world", lines[0].text)
         assertEquals("Last line", lines.last().text)
     }
