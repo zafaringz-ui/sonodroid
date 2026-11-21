@@ -192,11 +192,22 @@ jobs:
             if [ "$status" -eq 0 ]; then status=1; fi
             echo 'Last 100 lines of Gradle test output:'
             tail -n 100 ../ci-logs/gradle-test.log
-            python3 - <<'PY'
+            exit "$status"
+          }
+
+      - name: Summarize unit-test failures
+        if: ${{ failure() && !cancelled() }}
+        working-directory: android
+        shell: bash
+        run: |
+          python3 - <<'PY'
           from pathlib import Path
           import xml.etree.ElementTree as ET
 
-          for report in sorted(Path('.').rglob('build/test-results/testDebugUnitTest/TEST-*.xml')):
+          reports = [path for path in Path('.').rglob('TEST-*.xml') if 'testDebugUnitTest' in path.parts]
+          if not reports:
+              print('::error title=Gradle test diagnostics::No test result XML files were produced.')
+          for report in sorted(reports):
               root = ET.parse(report).getroot()
               suite = root.attrib.get('name', report.stem)
               for case in root.findall('.//testcase'):
@@ -208,8 +219,6 @@ jobs:
                   message = ' '.join((failure.attrib.get('message', '') + ' ' + (failure.text or '')).split())
                   print(f"::error title=Gradle test failure::{suite}.{case.attrib.get('name', '?')}: {message[:1000]}")
           PY
-            exit "$status"
-          }
 
       - name: Upload Gradle logs
         if: ${{ always() }}
