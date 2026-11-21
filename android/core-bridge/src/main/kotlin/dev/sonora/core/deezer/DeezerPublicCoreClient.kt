@@ -27,6 +27,8 @@ import dev.sonora.core.model.HomeItem
 import dev.sonora.core.model.HomeSection
 import dev.sonora.core.model.LibrarySnapshot
 import dev.sonora.core.model.Lyrics
+import dev.sonora.core.lyrics.LyricsQuery
+import dev.sonora.core.lyrics.LyricsRepository
 import dev.sonora.core.model.NetworkKind
 import dev.sonora.core.model.PlaybackState
 import dev.sonora.core.model.PlanTier
@@ -63,6 +65,7 @@ class DeezerPublicCoreClient(
     private val api: DeezerApiClient = DeezerApiClient(),
 ) : SonoraCoreClient, DeezerArtistTopTracks, PublicCatalogClient, DeezerAccountSession {
     private val account = DeezerPrivateSession()
+    private val lyricsRepository = LyricsRepository()
     override val media3Player: Player get() = player
     private val player = ExoPlayer.Builder(context.applicationContext)
         .setMediaSourceFactory(
@@ -202,7 +205,19 @@ class DeezerPublicCoreClient(
     override suspend fun library(provider: Provider): LibrarySnapshot =
         throw PublicModeUnavailableException("Library and downloads are not available in public mode.")
     override suspend fun playlist(provider: Provider, playlistId: String): PlaylistDetail = unavailable("Playlists")
-    override suspend fun lyrics(trackId: String): Lyrics? = unavailable("Lyrics")
+    override suspend fun lyrics(trackId: String): Lyrics? {
+        val track = _queue.value.firstOrNull { it.id == trackId } ?: return null
+        if (track.provider != Provider.DEEZER) return null
+        return lyricsRepository.lyrics(
+            LyricsQuery(
+                trackId = track.id,
+                title = track.title,
+                artist = track.artistLine,
+                album = track.album,
+                durationMs = track.durationMs,
+            ),
+        )
+    }
 
     override fun beginSignIn(provider: Provider) {
         emit(CoreEvent.Message(if (provider == Provider.DEEZER) "Continue Deezer sign-in in the secure WebView." else "Sign-in is not available in public mode."))
