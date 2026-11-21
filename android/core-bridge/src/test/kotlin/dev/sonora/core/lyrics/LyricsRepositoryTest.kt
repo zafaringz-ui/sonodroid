@@ -30,7 +30,7 @@ class LyricsRepositoryTest {
             MockResponse().setBody(
                 """[
                   {"id":1,"trackName":"Song","artistName":"Artist","albumName":"Album","duration":180,"plainLyrics":"first\nsecond"},
-                  {"id":2,"trackName":"Song","artistName":"Artist","albumName":"Album","duration":180,"syncedLyrics":"[00:00.00]first\n[00:03.00]second"}
+                  {"id":2,"trackName":"Song","artistName":"Artist","albumName":"Album","duration":180,"syncedLyrics":"[00:00.00]first\n[02:59.00]second"}
                 ]""",
             ),
         )
@@ -46,7 +46,7 @@ class LyricsRepositoryTest {
         assertEquals("LrcLib", lyrics!!.source)
         assertTrue(lyrics.synced)
         assertEquals(listOf("first", "second"), lyrics.lines.map(LyricLine::text))
-        assertEquals(listOf(0L, 3_000L), lyrics.lines.map(LyricLine::timeMs))
+        assertEquals(listOf(0L, 179_000L), lyrics.lines.map(LyricLine::timeMs))
     }
 
     @Test fun fallsBackToPlainLyricsWhenNoSyncedTextExists() = runTest {
