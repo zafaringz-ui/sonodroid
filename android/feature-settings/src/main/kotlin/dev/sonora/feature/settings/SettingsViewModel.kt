@@ -135,13 +135,14 @@ class SettingsViewModel(
     }
 
     fun checkForUpdates() {
+        if (_state.value.updateChecking) return
         val appContext = context?.applicationContext
         if (appContext == null) {
             _state.update { it.copy(updateStatus = "Update check unavailable in this context.") }
             return
         }
+        _state.update { it.copy(updateChecking = true, updateStatus = "Checking GitHub releases…", updateUrl = null) }
         viewModelScope.launch {
-            _state.update { it.copy(updateChecking = true, updateStatus = "Checking GitHub releases…", updateUrl = null) }
             try {
                 when (val update = UpdateChecker.check(appContext)) {
                     is UpdateResult.Available -> _state.update {

@@ -71,7 +71,7 @@ def strip_strings_and_comments(source: str) -> str:
         if char == "'":
             i += 1
             while i < length:
-                if source[i] == "\\\\":
+                if source[i] == "\\":
                     i += 2
                     continue
                 if source[i] == "'":

@@ -99,21 +99,28 @@ class SearchViewModel(
                     val signedIn = accounts.any {
                         it.provider == Provider.DEEZER && it.state == AuthState.SIGNED_IN
                     }
+                    requestGeneration++
                     _state.update { current ->
                         current.copy(
                             isSignedIn = signedIn,
-                            results = if (signedIn) current.results else null,
-                            error = if (!signedIn && current.query.isNotBlank()) "Sign in to Deezer to search the account catalog." else current.error,
+                            loading = false,
+                            results = null,
+                            error = if (!signedIn && current.query.isNotBlank()) {
+                                "Sign in to Deezer to search the account catalog."
+                            } else {
+                                null
+                            },
                         )
                     }
-                    if (signedIn) retryCounter.value += 1
+                    retryCounter.value += 1
                 }
             }
         }
     }
 
     private fun isCurrent(request: Request): Boolean =
-        request.term == query.value.trim() &&
+        (core !is DeezerAccountSession || (core.isSignedIn && _state.value.isSignedIn)) &&
+            request.term == query.value.trim() &&
             request.filter == filter.value &&
             request.provider == provider.value &&
             request.retry == retryCounter.value
