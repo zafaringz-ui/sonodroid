@@ -50,9 +50,9 @@ internal class DeezerPrivateSession(
         val cookies = linkedMapOf("arl" to normalized)
         val ping = request(gatewayUrl("deezer.ping", ""), cookies, null, isGet = true)
         adoptCookies(cookies, ping.setCookies)
-        val results = ping.body.obj("results")
+        val results = ping.body.sessionObj("results")
             ?: throw DeezerApiException.Api(null, "Deezer did not return a session.")
-        val sid = results.text("SESSION")?.takeIf(String::isNotBlank)
+        val sid = results.sessionText("SESSION")?.takeIf(String::isNotBlank)
             ?: throw DeezerApiException.Api(null, "Deezer did not establish a session.")
         cookies["sid"] = sid
         val accountData = request(
@@ -62,24 +62,24 @@ internal class DeezerPrivateSession(
             isGet = false,
         )
         adoptCookies(cookies, accountData.setCookies)
-        val userData = accountData.body.obj("results")
+        val userData = accountData.body.sessionObj("results")
             ?: throw DeezerApiException.Api(null, "Deezer returned no account details.")
-        val user = userData.obj("USER")
+        val user = userData.sessionObj("USER")
             ?: throw DeezerApiException.Api(null, "Deezer refused the session. Sign in again.")
-        val id = user.text("USER_ID")?.takeIf(String::isNotBlank)
+        val id = user.sessionText("USER_ID")?.takeIf(String::isNotBlank)
             ?: throw DeezerApiException.Api(null, "Deezer refused the session. Sign in again.")
-        val apiToken = userData.text("checkForm")?.takeIf(String::isNotBlank)
+        val apiToken = userData.sessionText("checkForm")?.takeIf(String::isNotBlank)
             ?: throw DeezerApiException.Api(null, "Deezer did not provide a session token.")
-        val options = user.obj("OPTIONS")
-        val license = options?.text("license_token")?.takeIf(String::isNotBlank)
+        val options = user.sessionObj("OPTIONS")
+        val license = options?.sessionText("license_token")?.takeIf(String::isNotBlank)
             ?: throw DeezerApiException.Api(null, "This Deezer account cannot authorize full-track playback.")
         val plan = when {
-            options?.bool("web_lossless") == true || options?.bool("mobile_lossless") == true -> PublicPlan.HIFI
-            options?.bool("web_hq") == true || options?.bool("mobile_hq") == true -> PublicPlan.PREMIUM
+            options?.sessionBool("web_lossless") == true || options?.sessionBool("mobile_lossless") == true -> PublicPlan.HIFI
+            options?.sessionBool("web_hq") == true || options?.sessionBool("mobile_hq") == true -> PublicPlan.PREMIUM
             else -> PublicPlan.FREE
         }
-        val displayName = user.text("BLOG_NAME")?.takeIf(String::isNotBlank)
-            ?: user.text("NAME")?.takeIf(String::isNotBlank)
+        val displayName = user.sessionText("BLOG_NAME")?.takeIf(String::isNotBlank)
+            ?: user.sessionText("NAME")?.takeIf(String::isNotBlank)
             ?: "Deezer listener"
         active = Session(normalized, cookies, apiToken, license, id, displayName, plan)
         Account(id, displayName, plan)
@@ -93,10 +93,10 @@ internal class DeezerPrivateSession(
         val trackData = gateway(
             "song.getData",
             buildJsonObject { put("SNG_ID", trackId) },
-        ).let { it.obj("FALLBACK") ?: it }
-        val effectiveId = trackData.text("SNG_ID")?.takeIf(String::isNotBlank)
+        ).let { it.sessionObj("FALLBACK") ?: it }
+        val effectiveId = trackData.sessionText("SNG_ID")?.takeIf(String::isNotBlank)
             ?: trackId
-        val token = trackData.text("TRACK_TOKEN")?.takeIf(String::isNotBlank)
+        val token = trackData.sessionText("TRACK_TOKEN")?.takeIf(String::isNotBlank)
             ?: throw DeezerApiException.Api(null, "This Deezer track is not available for playback.")
         val session = active ?: throw DeezerApiException.Api(null, "Sign in to Deezer to play full tracks.")
         val mediaRequest = buildJsonObject {
@@ -115,14 +115,14 @@ internal class DeezerPrivateSession(
             put("track_tokens", buildJsonArray { add(JsonPrimitive(token)) })
         }
         val media = requestJson(mediaUrl, mediaRequest.toString(), emptyMap(), "application/json")
-        val item = media.array("data")?.firstOrNull()?.asObject()
+        val item = media.sessionArray("data")?.firstOrNull()?.sessionAsObject()
             ?: throw DeezerApiException.Api(null, "Deezer did not provide an audio stream.")
-        val errors = item.array("errors")
+        val errors = item.sessionArray("errors")
         if (errors != null && errors.isNotEmpty()) {
             throw DeezerApiException.Api(null, "Deezer could not authorize this track for playback.")
         }
-        val url = item.array("media")?.firstOrNull()?.asObject()
-            ?.array("sources")?.firstOrNull()?.asObject()?.text("url")
+        val url = item.sessionArray("media")?.firstOrNull()?.sessionAsObject()
+            ?.sessionArray("sources")?.firstOrNull()?.sessionAsObject()?.sessionText("url")
             ?: throw DeezerApiException.Api(null, "Deezer did not return a playable audio source.")
         val encrypted = fetchBytes(url)
         val secret = streamSecret ?: fetchStreamSecret().also { streamSecret = it }
@@ -145,16 +145,16 @@ internal class DeezerPrivateSession(
         adoptCookies(session.cookies, response.setCookies)
         val updated = session.copy(cookies = session.cookies.toMutableMap())
         active = updated
-        response.body.obj("results") ?: throw DeezerApiException.Malformed("Deezer returned an invalid gateway response.")
+        response.body.sessionObj("results") ?: throw DeezerApiException.Malformed("Deezer returned an invalid gateway response.")
     }
 
     private suspend fun refresh(previous: Session): Session {
         val response = request(gatewayUrl("deezer.getUserData", ""), previous.cookies, "{}", false)
         adoptCookies(previous.cookies, response.setCookies)
-        val result = response.body.obj("results") ?: throw DeezerApiException.Api(null, "Deezer session expired. Sign in again.")
-        val user = result.obj("USER") ?: throw DeezerApiException.Api(null, "Deezer session expired. Sign in again.")
-        val token = result.text("checkForm") ?: throw DeezerApiException.Api(null, "Deezer session expired. Sign in again.")
-        val license = user.obj("OPTIONS")?.text("license_token")
+        val result = response.body.sessionObj("results") ?: throw DeezerApiException.Api(null, "Deezer session expired. Sign in again.")
+        val user = result.sessionObj("USER") ?: throw DeezerApiException.Api(null, "Deezer session expired. Sign in again.")
+        val token = result.sessionText("checkForm") ?: throw DeezerApiException.Api(null, "Deezer session expired. Sign in again.")
+        val license = user.sessionObj("OPTIONS")?.sessionText("license_token")
             ?: throw DeezerApiException.Api(null, "Deezer session expired. Sign in again.")
         return previous.copy(cookies = previous.cookies.toMutableMap(), apiToken = token, licenseToken = license)
     }
@@ -190,11 +190,11 @@ internal class DeezerPrivateSession(
                 if (!response.isSuccessful) {
                     throw DeezerApiException.Http(response.code, "Deezer request failed.")
                 }
-                val apiError = payload.obj("error")
+                val apiError = payload.sessionObj("error")
                 if (apiError != null) {
-                    val message = apiError.text("message")?.takeIf(String::isNotBlank)
+                    val message = apiError.sessionText("message")?.takeIf(String::isNotBlank)
                         ?: "Deezer rejected the request."
-                    throw DeezerApiException.Api(apiError.number("code")?.toInt(), message)
+                    throw DeezerApiException.Api(apiError.sessionNumber("code")?.toInt(), message)
                 }
                 Wire(payload, response.headers.values("Set-Cookie"))
             }
@@ -356,11 +356,11 @@ private fun parseHalf(candidate: String, terminator: String): ByteArray? {
     return bytes.reversed().toByteArray()
 }
 
-private fun JsonObject.obj(key: String): JsonObject? = this[key] as? JsonObject
-private fun JsonObject.array(key: String): JsonArray? = this[key] as? JsonArray
-private fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.content
-private fun JsonObject.number(key: String): Long? = (this[key] as? JsonPrimitive)?.content?.toLongOrNull()
-private fun JsonObject.bool(key: String): Boolean? {
+private fun JsonObject.sessionObj(key: String): JsonObject? = this[key] as? JsonObject
+private fun JsonObject.sessionArray(key: String): JsonArray? = this[key] as? JsonArray
+private fun JsonObject.sessionText(key: String): String? = (this[key] as? JsonPrimitive)?.content
+private fun JsonObject.sessionNumber(key: String): Long? = (this[key] as? JsonPrimitive)?.content?.toLongOrNull()
+private fun JsonObject.sessionBool(key: String): Boolean? {
     val primitive = this[key] as? JsonPrimitive ?: return null
     return primitive.booleanOrNull ?: when (primitive.content.lowercase()) {
         "1", "yes" -> true
@@ -368,4 +368,4 @@ private fun JsonObject.bool(key: String): Boolean? {
         else -> null
     }
 }
-private fun JsonElement.asObject(): JsonObject? = this as? JsonObject
+private fun JsonElement.sessionAsObject(): JsonObject? = this as? JsonObject

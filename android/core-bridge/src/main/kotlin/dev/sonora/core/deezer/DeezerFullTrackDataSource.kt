@@ -79,7 +79,7 @@ private class DeezerFullTrackDataSource(
         }
         source = bytes
         position = dataSpec.position.coerceAtMost(bytes.size.toLong()).toInt()
-        val requestedEnd = if (dataSpec.length == C.LENGTH_UNSET) bytes.size.toLong()
+        val requestedEnd = if (dataSpec.length == C.LENGTH_UNSET.toLong()) bytes.size.toLong()
             else (dataSpec.position + dataSpec.length).coerceAtMost(bytes.size.toLong())
         end = requestedEnd.coerceAtLeast(position.toLong()).toInt()
         return (end - position).toLong()
