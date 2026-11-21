@@ -24,7 +24,7 @@ class LyricsRepositoryTest {
 
         assertEquals("Hello world", line.text)
         assertEquals(line.text, line.words.joinToString("") { it.text })
-        assertEquals("Hello ", line.words.first().text)
+        assertEquals("Hello world", line.words.single().text)
     }
 
     @Test fun estimatesWordCadenceAcrossLineTimedLyrics() {
