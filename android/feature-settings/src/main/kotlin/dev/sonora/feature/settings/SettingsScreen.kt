@@ -298,6 +298,7 @@ fun SettingsScreen(
                 NavigationRow(
                     title = if (state.updateChecking) "Checking for updates…" else "Check for updates",
                     subtitle = state.updateStatus ?: "Installed version ${state.version} · checks GitHub releases",
+                    enabled = !state.updateChecking,
                     onClick = onCheckForUpdates,
                 )
                 state.updateUrl?.let { url ->
@@ -397,11 +398,16 @@ private fun AccountRow(
 }
 
 @Composable
-private fun NavigationRow(title: String, subtitle: String, onClick: () -> Unit) {
+private fun NavigationRow(
+    title: String,
+    subtitle: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

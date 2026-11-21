@@ -95,20 +95,20 @@ internal class LrcLibProvider(
                 val body = response.body?.string().orEmpty()
                 val entries = json.parseToJsonElement(body) as? JsonArray
                     ?: throw IOException("LRCLIB returned an invalid search response.")
-                entries.mapNotNull { it.asObject()?.toCandidate() }
+                entries.mapNotNull { it.asObject()?.toCandidate(query) }
             }
         } catch (error: IOException) {
             throw error
         }
     }
 
-    private fun JsonObject.toCandidate(): LyricsCandidate? {
+    private fun JsonObject.toCandidate(query: LyricsQuery): LyricsCandidate? {
         val title = string("trackName").orEmpty()
         val artist = string("artistName").orEmpty()
         val album = string("albumName")?.takeIf(String::isNotBlank)
         val duration = number("duration")?.let { (it * 1_000.0).toLong() }
         val syncedLines = string("syncedLyrics")?.let(::parseLrc).orEmpty()
-        val timingDuration = duration?.let { (it * 1_000.0).toLong() } ?: query.durationMs
+        val timingDuration = duration ?: query.durationMs
         val wordedLines = estimateWordTimings(syncedLines, timingDuration)
         val plainLines = string("plainLyrics")?.lineSequence()
             ?.map(String::trimEnd)
@@ -348,10 +348,11 @@ private fun parseWordTimedText(source: String): Pair<String, List<LyricWord>> {
     if (timed.isEmpty()) return plain.trimEnd() to emptyList()
 
     val words = mutableListOf<LyricWord>()
+    val leadingText = segments.firstOrNull()?.takeIf { it.atMs == null }?.text?.toString().orEmpty()
     timed.forEachIndexed { index, segment ->
         val start = segment.atMs ?: return@forEachIndexed
         val next = timed.getOrNull(index + 1)?.atMs
-        val piece = segment.text.toString()
+        val piece = (if (index == 0) leadingText else "") + segment.text.toString()
         if (piece.isEmpty()) {
             if (words.isNotEmpty()) {
                 val last = words.last()

@@ -97,6 +97,7 @@ class DeezerAccountCoreClient(
 
     private val preferences = mutableMapOf<Provider, QualityPreference>()
     private var network = NetworkKind.WIFI
+    private var offlinePlaybackBlocked = false
     private var ticker: Job? = null
 
     init {
@@ -105,6 +106,7 @@ class DeezerAccountCoreClient(
             override fun onPlaybackStateChanged(playbackState: Int) = syncPlayback()
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = syncPlayback()
             override fun onPlayerError(error: PlaybackException) {
+                if (network == NetworkKind.OFFLINE) offlinePlaybackBlocked = true
                 val track = _playback.value.track
                 _playback.value = _playback.value.copy(
                     isPlaying = false,
@@ -247,6 +249,7 @@ class DeezerAccountCoreClient(
     override suspend fun restore(arl: String) = signIn(arl)
 
     override suspend fun signOut() {
+        offlinePlaybackBlocked = false
         account.disconnect()
         player.pause()
         player.clearMediaItems()
@@ -270,8 +273,9 @@ class DeezerAccountCoreClient(
     override fun setNetwork(network: NetworkKind) {
         this.network = network
         if (network == NetworkKind.OFFLINE) {
+            offlinePlaybackBlocked = true
             player.pause()
-            _playback.value = _playback.value.copy(isPlaying = false, error = "You are offline. Reconnect and try again.")
+            _playback.value = _playback.value.copy(isPlaying = false, error = OFFLINE_MESSAGE)
         }
     }
 
@@ -296,6 +300,7 @@ class DeezerAccountCoreClient(
         if (tracks.isEmpty()) return
         val selectedIndex = startIndex.coerceIn(tracks.indices)
         val selected = tracks[selectedIndex]
+        offlinePlaybackBlocked = false
         if (!account.isConnected()) {
             player.pause()
             player.clearMediaItems()
@@ -312,6 +317,7 @@ class DeezerAccountCoreClient(
         val items = tracks.map(::buildMediaItem)
         player.setMediaItems(items, selectedIndex, 0L)
         if (network == NetworkKind.OFFLINE) {
+            offlinePlaybackBlocked = true
             player.pause()
             _playback.value = PlaybackState(
                 track = selected,
@@ -331,6 +337,7 @@ class DeezerAccountCoreClient(
         if (blockPlaybackWithoutAccount()) return
         if (index !in _queue.value.indices || index !in 0 until player.mediaItemCount) return
         if (blockOfflinePlayback()) return
+        offlinePlaybackBlocked = false
         _playback.value = _playback.value.copy(error = null)
         player.seekTo(index, 0L)
         player.prepare()
@@ -340,6 +347,7 @@ class DeezerAccountCoreClient(
     override fun playPause() {
         if (_playback.value.track == null || player.mediaItemCount == 0) return
         if (blockPlaybackWithoutAccount() || blockOfflinePlayback()) return
+        offlinePlaybackBlocked = false
         _playback.value = _playback.value.copy(error = null)
         if (player.isPlaying) player.pause() else {
             if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED || player.playerError != null) player.prepare()
@@ -349,11 +357,13 @@ class DeezerAccountCoreClient(
 
     override fun next() {
         if (blockPlaybackWithoutAccount() || blockOfflinePlayback()) return
+        offlinePlaybackBlocked = false
         player.seekToNextMediaItem()
     }
 
     override fun previous() {
         if (blockPlaybackWithoutAccount() || blockOfflinePlayback()) return
+        offlinePlaybackBlocked = false
         if (player.currentPosition > 3_000L) player.seekTo(0L) else player.seekToPreviousMediaItem()
     }
 
@@ -399,6 +409,7 @@ class DeezerAccountCoreClient(
 
     private fun blockPlaybackWithoutAccount(): Boolean {
         if (account.isConnected()) return false
+        offlinePlaybackBlocked = false
         player.pause()
         _playback.value = _playback.value.copy(
             isPlaying = false,
@@ -410,6 +421,7 @@ class DeezerAccountCoreClient(
     private fun blockOfflinePlayback(): Boolean {
         if (network != NetworkKind.OFFLINE) return false
         player.pause()
+        offlinePlaybackBlocked = true
         _playback.value = _playback.value.copy(isPlaying = false, error = OFFLINE_MESSAGE)
         return true
     }
@@ -450,7 +462,11 @@ class DeezerAccountCoreClient(
             queueIndex = index.coerceAtLeast(0),
             queueSize = _queue.value.size,
             volume = player.volume,
-            error = if (player.playerError == null) null else _playback.value.error,
+            error = when {
+                player.playerError != null -> _playback.value.error
+                offlinePlaybackBlocked -> OFFLINE_MESSAGE
+                else -> null
+            },
         )
         emit(CoreEvent.PlaybackChanged(_playback.value))
     }
