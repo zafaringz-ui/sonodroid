@@ -2,9 +2,9 @@
 
 ## What works now (debug Deezer public mode)
 
-- The debug build is wired to the public Deezer catalog: `GET /search?q=…&limit=25`, `/chart`, `/artist/{id}/top?limit=20`, `/album/{id}` plus `/album/{id}/tracks`, and Media3 30-second previews. The debug badge reads `Deezer public (30s previews)`.
-- Public mode uses no credentials, cookies, ARL, or tokens. Library, playlists, sign-in, downloads, and lyrics return an explicit not-available result. Missing optional track values default to empty artists, null album/artwork/preview, zero duration, and non-explicit; absent album artist is “Unknown artist”, with year/follower count unknown.
-- **CI-verified in run 44834626853** (Android assembly/unit tests, Rust and native ABI jobs, plus live Deezer fields smoke check). No device or emulator run has been done.
+- The debug build uses Deezer's public catalog endpoints for search, charts, artist top tracks, and album tracks. Signed out, playback uses public 30-second previews; optional Deezer WebView sign-in validates and encrypts the session credential with Android Keystore, then enables authenticated full-track playback with Sonora's BF_CBC_STRIPE decryption in memory. The debug badge reads `Deezer public catalog`.
+- Library, playlists, downloads, and lyrics remain unavailable in this Android client. Missing optional public track fields default to empty artists, null album/artwork/preview, zero duration, and non-explicit; absent album artist is “Unknown artist”, with year/follower count unknown.
+- **User-verified on device:** the user installed `sonora-debug-apk`, signed in to a Deezer Free account, and confirmed playback of a full song. **Verified in CI:** run [44846090921](https://github.com/zafaringz-ui/sonodroid/actions/runs/44846090921) passed Android assembly/tests, Rust tests/Clippy, and the Android native build at commit `154fc2d`. Session restore after restart, sign-out credential removal, seeking/background playback, and other account/track error cases are not yet device-verified.
 
 Categories: **verified** means the indicated command was actually run with the
 recorded result; **implemented but untested** means source/configuration exists but
