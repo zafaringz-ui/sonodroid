@@ -24,6 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,8 +64,10 @@ fun NowPlayingScreen(
     onOpenQueue: () -> Unit,
     onOpenLyrics: () -> Unit,
     modifier: Modifier = Modifier,
+    onRetry: () -> Unit = {},
 ) {
     val playback = state.playback
+    val playbackError = playback.error
     val track = playback.track
     val colors = SonoraTheme.colors
 
@@ -154,11 +157,29 @@ fun NowPlayingScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    if (track.provider == dev.sonora.core.model.Provider.DEEZER && track.previewUrl != null) {
+                        Text(
+                            text = "30 s preview",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
                 LikeButton()
             }
 
             Spacer(Modifier.height(8.dp))
+
+            if (playbackError != null) {
+                Text(
+                    text = playbackError,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (track.provider == dev.sonora.core.model.Provider.DEEZER && playback.queueSize > 0) {
+                    TextButton(onClick = onRetry) { Text("Try again") }
+                }
+            }
 
             SeekBar(
                 positionMs = playback.positionMs,

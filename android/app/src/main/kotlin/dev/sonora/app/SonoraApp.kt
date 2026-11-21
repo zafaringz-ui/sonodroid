@@ -42,8 +42,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import dev.sonora.core.PublicCatalogClient
 import dev.sonora.core.model.PlanTier
 import dev.sonora.core.model.Provider
+import dev.sonora.design.component.EmptyState
 import dev.sonora.design.component.MiniPlayer
 import dev.sonora.feature.auth.SignInRoute
 import dev.sonora.feature.auth.WelcomeScreen
@@ -90,7 +92,9 @@ fun SonoraApp(graph: AppGraph) {
         }
     }
 
-    val startDestination: Any = if (graph.onboarding.isOnboarded) {
+    val startDestination: Any = if (
+        graph.onboarding.isOnboarded || core is PublicCatalogClient
+    ) {
         HomeDestination
     } else {
         WelcomeDestination
@@ -159,19 +163,28 @@ fun SonoraApp(graph: AppGraph) {
 
             composable<SignInDestination> { entry ->
                 val args = entry.toRoute<SignInDestination>()
-                SignInRoute(
-                    core = core,
-                    credentials = graph.credentials,
-                    providerSlug = args.providerSlug,
-                    onBack = { navController.popBackStack() },
-                    onDone = {
-                        graph.onboarding.isOnboarded = true
-                        navController.navigate(HomeDestination) {
-                            popUpTo(WelcomeDestination) { inclusive = true }
-                            launchSingleTop = true
-                        }
-                    },
-                )
+                if (core is PublicCatalogClient && args.providerSlug != Provider.DEEZER.slug) {
+                    EmptyState(
+                        title = "Sign-in unavailable",
+                        body = "YouTube Music sign-in is not available in this public Deezer build.",
+                        actionLabel = "Back",
+                        onAction = { navController.popBackStack() },
+                    )
+                } else {
+                    SignInRoute(
+                        core = core,
+                        credentials = graph.credentials,
+                        providerSlug = args.providerSlug,
+                        onBack = { navController.popBackStack() },
+                        onDone = {
+                            graph.onboarding.isOnboarded = true
+                            navController.navigate(HomeDestination) {
+                                popUpTo(WelcomeDestination) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        },
+                    )
+                }
             }
 
             composable<HomeDestination> {
@@ -257,6 +270,7 @@ fun SonoraApp(graph: AppGraph) {
             composable<SettingsDestination> {
                 SettingsRoute(
                     core = core,
+                    credentials = graph.credentials,
                     onOpenQuality = { provider ->
                         navController.navigate(QualityDestination(provider.slug))
                     },
@@ -314,6 +328,7 @@ fun SonoraApp(graph: AppGraph) {
                     showNowPlaying = false
                     navController.navigate(LyricsDestination)
                 },
+                onRetry = playerViewModel::retryCurrent,
                 modifier = Modifier.fillMaxHeight(),
             )
         }

@@ -21,13 +21,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.sonora.core.DeezerArtistTopTracks
 import dev.sonora.core.SonoraCoreClient
+import dev.sonora.core.model.Artist
 import dev.sonora.core.model.HomeItem
 import dev.sonora.core.model.Provider
 import dev.sonora.core.model.Track
@@ -37,6 +40,7 @@ import dev.sonora.design.component.MediaCard
 import dev.sonora.design.component.SectionHeader
 import dev.sonora.design.component.Shelf
 import dev.sonora.design.component.TrackRow
+import kotlinx.coroutines.launch
 
 @Composable
 fun HomeRoute(
@@ -49,6 +53,7 @@ fun HomeRoute(
 ) {
     val viewModel: HomeViewModel = viewModel(factory = HomeViewModel.factory(core))
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
 
     HomeScreen(
         state = state,
@@ -59,6 +64,14 @@ fun HomeRoute(
         onOpenPlaylist = onOpenPlaylist,
         onOpenSettings = onOpenSettings,
         onSignIn = onSignIn,
+        onOpenArtist = { artist ->
+            scope.launch {
+                val tracks = runCatching {
+                    (core as? DeezerArtistTopTracks)?.artistTopTracks(artist.id).orEmpty()
+                }.getOrDefault(emptyList())
+                if (tracks.isNotEmpty()) onPlayTracks(tracks, 0)
+            }
+        },
     )
 }
 
@@ -74,6 +87,7 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onSignIn: (Provider) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenArtist: (Artist) -> Unit = {},
 ) {
     val feed = state.feed
 
@@ -95,7 +109,9 @@ fun HomeScreen(
                         style = MaterialTheme.typography.headlineLarge,
                     )
                     Text(
-                        text = "Listen across Deezer and YouTube Music",
+                        text = if (state.isPublicMode) {
+                            if (Provider.DEEZER in state.signedIn) "Deezer account connected · full tracks" else "Public Deezer previews · sign in for full tracks"
+                        } else "Listen across Deezer and YouTube Music",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -125,7 +141,7 @@ fun HomeScreen(
             }
         }
 
-        if (state.selected !in state.signedIn) {
+        if (state.selected !in state.signedIn && (!state.isPublicMode || state.selected == Provider.DEEZER)) {
             item(key = "signin-prompt") {
                 SignInPrompt(provider = state.selected, onSignIn = onSignIn)
             }
@@ -189,9 +205,9 @@ fun HomeScreen(
                             )
                             is HomeItem.ArtistItem -> MediaCard(
                                 title = item.artist.name,
-                                subtitle = "Artist",
+                                subtitle = "Artist · tap for top tracks",
                                 artworkUrl = item.artist.artworkUrl,
-                                onClick = { },
+                                onClick = { onOpenArtist(item.artist) },
                             )
                             is HomeItem.TrackItem -> MediaCard(
                                 title = item.track.title,
@@ -220,7 +236,7 @@ private fun SignInPrompt(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "Sign in to ${provider.label} to sync your own library.",
+            text = if (provider == Provider.DEEZER) "Sign in to Deezer for full-track playback." else "Sign in to ${provider.label} to sync your own library.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),

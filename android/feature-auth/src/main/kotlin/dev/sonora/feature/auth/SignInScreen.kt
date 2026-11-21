@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.Button
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,6 +43,7 @@ import dev.sonora.secure.CredentialStore
 import dev.sonora.webview.AuthFlows
 import dev.sonora.webview.AuthWebView
 import dev.sonora.webview.AuthProvider
+import dev.sonora.webview.clearCookiesFor
 
 @Composable
 fun SignInRoute(
@@ -57,7 +59,12 @@ fun SignInRoute(
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(providerSlug) { viewModel.setProvider(providerSlug) }
-    LaunchedEffect(state.done) { if (state.done) onDone() }
+    LaunchedEffect(state.done) {
+        if (state.done) {
+            clearCookiesFor(AuthFlows.forSlug(providerSlug))
+            onDone()
+        }
+    }
 
     SignInScreen(
         state = state,
@@ -134,10 +141,21 @@ fun SignInScreen(
 
         Spacer(Modifier.height(12.dp))
         Text(
-            text = "Real provider sign-in is not implemented. Do not enter account credentials in this prototype.",
+            text = if (state.isPublicMode && state.providerSlug == AuthProvider.DEEZER.slug) {
+                "Sign in to Deezer in the secure browser to enable full-track playback. Your session is validated and stored encrypted on this device."
+            } else {
+                "Real provider sign-in is not available in this build."
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        if (state.isPublicMode && state.providerSlug == AuthProvider.DEEZER.slug) {
+            Spacer(Modifier.height(16.dp))
+            Button(onClick = onOpenWebView, enabled = !state.busy) {
+                Text("Continue with Deezer")
+            }
+        }
 
         if (state.isDemo) {
             Spacer(Modifier.height(8.dp))

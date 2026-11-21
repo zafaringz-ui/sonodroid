@@ -1,6 +1,7 @@
 package dev.sonora.secure
 
 import android.content.Context
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -89,8 +90,22 @@ class SecretsVault(context: Context) {
         val keyStore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
         (keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey?.let { return it }
 
+        // Request StrongBox only on API 28+, and treat it as an optional hardware
+        // preference: many emulators/devices expose the API but cannot generate a
+        // StrongBox key. Retry with the regular Android Keystore in that case.
+        val tryStrongBox = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+        return try {
+            generateSecretKey(tryStrongBox)
+        } catch (failure: Exception) {
+            if (!tryStrongBox) throw failure
+            runCatching { keyStore.deleteEntry(KEY_ALIAS) }
+            generateSecretKey(strongBox = false)
+        }
+    }
+
+    private fun generateSecretKey(strongBox: Boolean): SecretKey {
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE)
-        val spec = KeyGenParameterSpec.Builder(
+        val builder = KeyGenParameterSpec.Builder(
             KEY_ALIAS,
             KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
         )
@@ -98,12 +113,8 @@ class SecretsVault(context: Context) {
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
             .setKeySize(256)
             .setUserAuthenticationRequired(false)
-            .apply {
-                // StrongBox is a nice-to-have; not every OEM ships it.
-                runCatching { setIsStrongBoxBacked(true) }
-            }
-            .build()
-        generator.init(spec)
+        if (strongBox) builder.setIsStrongBoxBacked(true)
+        generator.init(builder.build())
         return generator.generateKey()
     }
 

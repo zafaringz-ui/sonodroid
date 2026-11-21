@@ -36,7 +36,7 @@ fun AuthWebView(
     onBlockedNavigation: (String) -> Unit = {},
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val webView = remember {
+    val webView = remember(target) {
         WebView(context).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -49,10 +49,11 @@ fun AuthWebView(
         }
     }
 
-    DisposableEffect(webView) {
+    DisposableEffect(webView, target) {
         onDispose {
             webView.stopLoading()
             webView.loadUrl("about:blank")
+            clearCookiesFor(target)
             webView.destroy()
         }
     }
@@ -110,10 +111,7 @@ fun AuthWebView(
         update = { view ->
             view.webViewClient = client
         },
-        onRelease = { view ->
-            view.webViewClient = WebViewClient()
-            view.destroy()
-        },
+        onRelease = { view -> view.webViewClient = WebViewClient() },
     )
 }
 
@@ -135,9 +133,16 @@ internal fun isSuccessPage(target: AuthTarget, url: String): Boolean {
  */
 fun clearCookiesFor(target: AuthTarget) {
     val manager = CookieManager.getInstance()
-    target.allowedHostSuffixes.forEach { suffix ->
-        manager.setCookie("https://$suffix", "arl=; Max-Age=0")
-        manager.setCookie("https://$suffix", "SAPISID=; Max-Age=0")
+    val cookieDomains = when (target.provider) {
+        AuthProvider.DEEZER -> listOf("deezer.com", "www.deezer.com")
+        AuthProvider.YOUTUBE -> target.allowedHostSuffixes
+    }
+    cookieDomains.forEach { suffix ->
+        val origin = "https://$suffix"
+        val names = manager.getCookie(origin).orEmpty().split(';').mapNotNull { pair ->
+            pair.substringBefore('=').trim().takeIf(String::isNotEmpty)
+        }
+        names.forEach { name -> manager.setCookie(origin, "$name=; Max-Age=0; Path=/") }
     }
     manager.flush()
 }

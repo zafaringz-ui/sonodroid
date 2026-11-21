@@ -52,6 +52,10 @@ android {
 dependencies {
     api(libs.kotlinx.coroutines.core)
     api(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.okhttp)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.common)
 
     // Only the native build carries generated UniFFI Kotlin. JNA carries *every*
     // native call the generated bindings make, not just the object cleaner, and it
@@ -66,6 +70,8 @@ dependencies {
     }
 
     testImplementation(libs.junit)
+    testImplementation(libs.mockwebserver)
+    testImplementation(libs.robolectric)
     testImplementation(libs.turbine)
     testImplementation(libs.kotlinx.coroutines.test)
 }

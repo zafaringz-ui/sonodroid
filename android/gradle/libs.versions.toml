@@ -7,6 +7,7 @@ activityCompose = "1.9.3"
 composeBom = "2024.12.01"
 navigation = "2.8.5"
 media3 = "1.5.0"
+okhttp = "4.12.0"
 # UniFFI 0.28.3 Kotlin bindings require >= 1.6; 1.9.0 satisfies that.
 coroutines = "1.9.0"
 serialization = "1.7.3"
@@ -44,6 +45,9 @@ compose-material-icons-extended = { group = "androidx.compose.material", name = 
 
 media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
 media3-common = { group = "androidx.media3", name = "media3-common", version.ref = "media3" }
+media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
 
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }

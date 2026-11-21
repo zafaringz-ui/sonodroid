@@ -33,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.sonora.core.DeezerArtistTopTracks
 import dev.sonora.core.SonoraCoreClient
 import dev.sonora.core.model.Album
 import dev.sonora.core.model.Artist
@@ -53,6 +55,7 @@ import dev.sonora.design.component.Artwork
 import dev.sonora.design.component.EmptyState
 import dev.sonora.design.component.SectionHeader
 import dev.sonora.design.component.TrackRow
+import kotlinx.coroutines.launch
 
 @Composable
 fun SearchRoute(
@@ -63,6 +66,7 @@ fun SearchRoute(
 ) {
     val viewModel: SearchViewModel = viewModel(factory = SearchViewModel.factory(core))
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
 
     SearchScreen(
         state = state,
@@ -70,10 +74,19 @@ fun SearchRoute(
         onSubmit = viewModel::submit,
         onClear = viewModel::clearQuery,
         onFilterChange = viewModel::setFilter,
+        onRetry = viewModel::retry,
         onProviderChange = viewModel::setProvider,
         onPlayTracks = onPlayTracks,
         onOpenAlbum = onOpenAlbum,
         onOpenPlaylist = onOpenPlaylist,
+        onOpenArtist = { artist ->
+            scope.launch {
+                val tracks = runCatching {
+                    (core as? DeezerArtistTopTracks)?.artistTopTracks(artist.id).orEmpty()
+                }.getOrDefault(emptyList())
+                if (tracks.isNotEmpty()) onPlayTracks(tracks, 0)
+            }
+        },
     )
 }
 
@@ -90,6 +103,8 @@ fun SearchScreen(
     onOpenAlbum: (Provider, String) -> Unit,
     onOpenPlaylist: (Provider, String) -> Unit,
     modifier: Modifier = Modifier,
+    onRetry: () -> Unit = {},
+    onOpenArtist: (Artist) -> Unit = {},
 ) {
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -193,7 +208,12 @@ fun SearchScreen(
         val results = state.results
         if (state.error != null) {
             item(key = "error") {
-                EmptyState(title = "Search failed", body = state.error)
+                EmptyState(
+                    title = "Search failed",
+                    body = state.error,
+                    actionLabel = "Try again",
+                    onAction = onRetry,
+                )
             }
         }
 
@@ -234,11 +254,11 @@ fun SearchScreen(
                 items(results.artists, key = { "artist-${it.provider.slug}-${it.id}" }) { artist ->
                     MediaRow(
                         title = artist.name,
-                        subtitle = "Artist",
+                        subtitle = "Artist · tap for top tracks",
                         artworkTitle = artist.name,
                         artworkUrl = artist.artworkUrl,
                         circular = true,
-                    ) { }
+                    ) { onOpenArtist(artist) }
                 }
             }
             if (results.playlists.isNotEmpty()) {

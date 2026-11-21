@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import dev.sonora.core.PublicCatalogClient
 import dev.sonora.core.SonoraCoreClient
 import dev.sonora.core.model.DownloadItem
 import dev.sonora.core.model.NetworkKind
@@ -15,6 +16,7 @@ import dev.sonora.core.model.StreamPurpose
 import dev.sonora.core.model.StreamQuality
 import dev.sonora.design.theme.SonoraAccent
 import dev.sonora.design.theme.SonoraUiPreferences
+import dev.sonora.secure.CredentialStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,17 +34,20 @@ data class SettingsUiState(
     val accent: SonoraAccent = SonoraAccent.TIDE,
     val dynamicColor: Boolean = true,
     val isDemo: Boolean = false,
+    val isPublicMode: Boolean = false,
     val version: String = "0.1.0",
     val message: String? = null,
 )
 
 class SettingsViewModel(
     private val core: SonoraCoreClient,
+    private val credentials: CredentialStore?,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
         SettingsUiState(
             isDemo = core.isDemoMode,
+            isPublicMode = core is PublicCatalogClient,
             accent = SonoraUiPreferences.accent.value,
             dynamicColor = SonoraUiPreferences.dynamicColor.value,
             preferences = Provider.entries.associateWith { core.qualityPreference(it) },
@@ -99,6 +104,7 @@ class SettingsViewModel(
     fun signOut(provider: Provider) {
         viewModelScope.launch {
             core.signOut(provider)
+            credentials?.clear(provider.slug)
             _state.update { it.copy(message = "Signed out of ${provider.label}") }
         }
     }
@@ -106,8 +112,8 @@ class SettingsViewModel(
     fun consumeMessage() = _state.update { it.copy(message = null) }
 
     companion object {
-        fun factory(core: SonoraCoreClient): ViewModelProvider.Factory = viewModelFactory {
-            initializer { SettingsViewModel(core) }
+        fun factory(core: SonoraCoreClient, credentials: CredentialStore? = null): ViewModelProvider.Factory = viewModelFactory {
+            initializer { SettingsViewModel(core, credentials) }
         }
     }
 }

@@ -19,6 +19,9 @@ enum class CoreMode {
 
     /** `UniffiCoreClient` backed by the Rust core answering from real providers. */
     RUST_LIVE,
+
+    /** Public Deezer catalog with optional authenticated full-track playback. */
+    DEEZER_PUBLIC,
 }
 
 /**
@@ -67,6 +70,14 @@ object CoreSelectionPolicy {
     const val LABEL_DEMO = "Demo core"
     const val LABEL_RUST_FIXTURES = "Rust core (fixtures)"
     const val LABEL_RUST_LIVE = "Rust core (live)"
+    const val LABEL_DEEZER_PUBLIC = "Deezer public catalog"
+
+    fun deezerPublic(): CoreSelection = CoreSelection(
+        mode = CoreMode.DEEZER_PUBLIC,
+        reason = null,
+        label = LABEL_DEEZER_PUBLIC,
+        detail = "Public Deezer catalog; sign-in is optional and unlocks authenticated full tracks.",
+    )
 
     /**
      * @param rustEnabled the `SONORA_RUST` build flag.

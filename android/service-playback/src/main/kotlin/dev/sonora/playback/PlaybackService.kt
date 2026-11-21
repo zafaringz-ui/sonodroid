@@ -6,6 +6,7 @@ import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import dev.sonora.core.PublicCatalogClient
 
 /**
  * Foreground media service (plan §2).
@@ -21,12 +22,14 @@ import androidx.media3.session.MediaSessionService
 class PlaybackService : MediaSessionService() {
 
     private var session: MediaSession? = null
+    private var ownsPlayer: Boolean = false
 
     override fun onCreate() {
         super.onCreate()
         val core = PlaybackDependencies.core ?: return
 
-        val player = SonoraPlayer(core, Looper.getMainLooper())
+        val sharedPlayer = (core as? PublicCatalogClient)?.media3Player
+        val player = sharedPlayer ?: SonoraPlayer(core, Looper.getMainLooper()).also { ownsPlayer = true }
         session = MediaSession.Builder(this, player)
             .setId(SESSION_ID)
             .build()
@@ -45,9 +48,10 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         session?.run {
-            player.release()
+            if (ownsPlayer) player.release()
             release()
         }
+        ownsPlayer = false
         session = null
         super.onDestroy()
     }
