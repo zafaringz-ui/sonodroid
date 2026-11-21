@@ -11,9 +11,18 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.Rule
+import org.junit.rules.TestWatcher
+import org.junit.runner.Description
 import dev.sonora.core.model.LyricLine
 
 class LyricsRepositoryTest {
+    @get:Rule val testFailureReporter: TestWatcher = object : TestWatcher() {
+        override fun failed(error: Throwable, description: Description) {
+            System.err.println("::error title=lyrics-test::${description.methodName}: ${error.javaClass.simpleName}: ${error.message}")
+        }
+    }
+
     private lateinit var server: MockWebServer
 
     @Before fun startServer() {
